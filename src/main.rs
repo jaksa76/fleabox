@@ -1,28 +1,56 @@
 use axum::{
-    extract::{Path, Request},
+    extract::{Path, Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, put},
     Json, Router,
 };
+use axum_extra::extract::CookieJar;
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     env,
     ffi::{CStr, CString},
     fs,
     path::{Path as StdPath, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
+    sync::{atomic::{AtomicU64, Ordering}, Arc, RwLock},
+    time::{Duration, SystemTime},
 };
 use tokio::{
     fs::{create_dir_all, remove_dir_all, remove_file, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
+use uuid::Uuid;
 
 // Global counter for unique temp file names
 // Used to prevent race conditions when multiple requests write to the same file concurrently
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// Token store for access control
+// Maps token -> TokenInfo
+type TokenStore = Arc<RwLock<HashMap<String, TokenInfo>>>;
+
+// Information stored for each token
+#[derive(Clone, Debug)]
+struct TokenInfo {
+    user: String,
+    app: String,
+    expiry: SystemTime,
+}
+
+impl TokenInfo {
+    fn is_expired(&self) -> bool {
+        SystemTime::now() > self.expiry
+    }
+}
+
+// Application state
+#[derive(Clone)]
+struct AppState {
+    token_store: TokenStore,
+}
 
 // Error response structure
 #[derive(Serialize, Debug)]
@@ -244,45 +272,65 @@ fn get_current_user() -> Option<String> {
     }
 }
 
-// Middleware to extract and validate user from X-Remote-User header or use current user in dev mode
-async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, ErrorResponse> {
-    let username = req
-        .headers()
-        .get("X-Remote-User")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| {
-            ErrorResponse::new("unauthorized", Some("Missing X-Remote-User header".to_string()))
-        })?;
-
-    let home_dir = get_user_home(username).ok_or_else(|| {
+// Middleware to validate token from cookie and ensure it matches the app being accessed
+async fn token_auth_middleware(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, ErrorResponse> {
+    // Extract token from cookie
+    let token = jar
+        .get("fleabox_token")
+        .ok_or_else(|| ErrorResponse::new("unauthorized", Some("Missing authentication token".to_string())))?
+        .value()
+        .to_string();
+    
+    // Look up token in store
+    let token_info = {
+        let store = state.token_store.read().unwrap();
+        store.get(&token).cloned()
+    };
+    
+    let token_info = token_info.ok_or_else(|| {
+        ErrorResponse::new("unauthorized", Some("Invalid token".to_string()))
+    })?;
+    
+    // Check if token is expired
+    if token_info.is_expired() {
+        // Clean up expired token
+        let mut store = state.token_store.write().unwrap();
+        store.remove(&token);
+        return Err(ErrorResponse::new("unauthorized", Some("Token expired".to_string())));
+    }
+    
+    // Extract app_id from the request path
+    // Path format: /api/<app_id>/data/<path>
+    let uri_path = req.uri().path();
+    let app_id = uri_path
+        .strip_prefix("/api/")
+        .and_then(|s| s.split('/').next())
+        .ok_or_else(|| ErrorResponse::new("bad_request", Some("Invalid API path".to_string())))?;
+    
+    // Verify token's app matches the requested app
+    if token_info.app != app_id {
+        return Err(ErrorResponse::new(
+            "unauthorized",
+            Some(format!("Token not valid for app '{}'", app_id)),
+        ));
+    }
+    
+    // Get user's home directory
+    let home_dir = get_user_home(&token_info.user).ok_or_else(|| {
         ErrorResponse::new(
             "unauthorized",
-            Some(format!("User '{}' not found", username)),
+            Some(format!("User '{}' not found", token_info.user)),
         )
     })?;
-
+    
     // Store user info in request extensions
     req.extensions_mut().insert(UserInfo { home_dir });
-
-    Ok(next.run(req).await)
-}
-
-// Middleware for dev mode - uses current system user instead of X-Remote-User header
-async fn dev_auth_middleware(mut req: Request, next: Next) -> Result<Response, ErrorResponse> {
-    let username = get_current_user().ok_or_else(|| {
-        ErrorResponse::new("internal_error", Some("Failed to get current user".to_string()))
-    })?;
-
-    let home_dir = get_user_home(&username).ok_or_else(|| {
-        ErrorResponse::new(
-            "internal_error",
-            Some(format!("User '{}' not found", username)),
-        )
-    })?;
-
-    // Store user info in request extensions
-    req.extensions_mut().insert(UserInfo { home_dir });
-
+    
     Ok(next.run(req).await)
 }
 
@@ -655,7 +703,12 @@ async fn list_directories() -> Html<String> {
     Html(html)
 }
 
-async fn serve_app_file(Path((app, file)): Path<(String, String)>) -> Response {
+async fn serve_app_file(
+    Path((app, file)): Path<(String, String)>,
+    _jar: CookieJar,
+) -> Response {
+    // For now, allow access to static files without token validation
+    // since they're just HTML/CSS/JS that gets loaded initially
     let file_path = format!("/srv/fleabox/{}/{}", app, file);
     
     match fs::read_to_string(&file_path) {
@@ -683,16 +736,54 @@ async fn serve_app_file(Path((app, file)): Path<(String, String)>) -> Response {
     }
 }
 
-async fn serve_app_index(Path(app): Path<String>) -> Response {
+async fn serve_app_index(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(app): Path<String>,
+    req: Request,
+) -> Response {
     let index_path = format!("/srv/fleabox/{}/index.html", app);
     
     match fs::read_to_string(&index_path) {
-        Ok(content) => (
-            StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/html")],
-            content,
-        )
-            .into_response(),
+        Ok(content) => {
+            // Get username from either header (prod) or current user (dev)
+            let username = if let Some(user_header) = req.headers().get("X-Remote-User") {
+                user_header.to_str().unwrap_or("unknown").to_string()
+            } else {
+                get_current_user().unwrap_or_else(|| "unknown".to_string())
+            };
+            
+            // Generate a new token for this app access
+            let token = Uuid::new_v4().to_string();
+            let token_info = TokenInfo {
+                user: username,
+                app: app.clone(),
+                expiry: SystemTime::now() + Duration::from_secs(3600 * 24), // 24 hour expiry
+            };
+            
+            // Store token
+            {
+                let mut store = state.token_store.write().unwrap();
+                store.insert(token.clone(), token_info);
+            }
+            
+            // Set cookie with token
+            let cookie: Cookie = Cookie::build(("fleabox_token", token))
+                .path("/")
+                .same_site(SameSite::Strict)
+                .http_only(true)
+                .into();
+            
+            let jar = jar.add(cookie);
+            
+            (
+                StatusCode::OK,
+                jar,
+                [(axum::http::header::CONTENT_TYPE, "text/html")],
+                content,
+            )
+                .into_response()
+        }
         Err(_) => (StatusCode::NOT_FOUND, "App not found").into_response(),
     }
 }
@@ -701,37 +792,35 @@ async fn serve_app_index(Path(app): Path<String>) -> Response {
 async fn main() {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-    let dev_mode = args.contains(&"--dev".to_string());
+    let _dev_mode = args.contains(&"--dev".to_string());
 
-    // API routes with authentication middleware (proxy mode or dev mode)
-    let api_routes = if dev_mode {
-        println!("Running in development mode (using current user)");
-        Router::new()
-            .route("/api/:app_id/data/*path", get(api_get_data))
-            .route("/api/:app_id/data/*path", put(api_put_data))
-            .route("/api/:app_id/data/*path", delete(api_delete_data))
-            .layer(middleware::from_fn(dev_auth_middleware))
-    } else {
-        println!("Running in production mode (using X-Remote-User header)");
-        Router::new()
-            .route("/api/:app_id/data/*path", get(api_get_data))
-            .route("/api/:app_id/data/*path", put(api_put_data))
-            .route("/api/:app_id/data/*path", delete(api_delete_data))
-            .layer(middleware::from_fn(auth_middleware))
+    // Create shared application state
+    let state = AppState {
+        token_store: Arc::new(RwLock::new(HashMap::new())),
     };
+
+    // API routes with token-based authentication
+    let api_routes = Router::new()
+        .route("/api/:app_id/data/*path", get(api_get_data))
+        .route("/api/:app_id/data/*path", put(api_put_data))
+        .route("/api/:app_id/data/*path", delete(api_delete_data))
+        .layer(middleware::from_fn_with_state(state.clone(), token_auth_middleware))
+        .with_state(state.clone());
 
     // Main app with both API and static routes
     let app = Router::new()
         .merge(api_routes)
         .route("/", get(list_directories))
         .route("/:app", get(serve_app_index))
-        .route("/:app/*file", get(serve_app_file));
+        .route("/:app/*file", get(serve_app_file))
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
     
     println!("Server running on http://0.0.0.0:3000");
+    println!("Token-based authentication enabled");
     axum::serve(listener, app).await.unwrap();
 }
 

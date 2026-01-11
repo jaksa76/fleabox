@@ -49,5 +49,5 @@ cargo test
 You can copy the examples folder into /srv/fleabox/ to try out the sample apps. Then you should run it with:
 
 ```bash
-fleabox --static-dir ./examples
+cargo run -- --dev
 ```
