@@ -153,27 +153,42 @@ fn validate_and_resolve_path(
         full_path.push(component);
     }
 
-    // Canonicalize if it exists, otherwise validate parent
-    let canonical = if full_path.exists() {
-        full_path
-            .canonicalize()
-            .map_err(|_| ErrorResponse::new("internal_error", Some("Path resolution failed".to_string())))?
+    // Get canonical base for validation
+    let canonical_base = if base_dir.exists() {
+        base_dir.canonicalize().map_err(|_| {
+            ErrorResponse::new("internal_error", Some("Base path resolution failed".to_string()))
+        })?
     } else {
-        // For non-existent paths (PUT), validate the parent
+        base_dir.to_path_buf()
+    };
+
+    // Canonicalize if it exists, otherwise validate parent hierarchy
+    let canonical = if full_path.exists() {
+        let resolved = full_path
+            .canonicalize()
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Path resolution failed".to_string())))?;
+        
+        // Verify it's under base_dir
+        if !resolved.starts_with(&canonical_base) {
+            return Err(ErrorResponse::new(
+                "bad_request",
+                Some("Path escapes data root".to_string()),
+            ));
+        }
+        resolved
+    } else {
+        // For non-existent paths (PUT), validate the parent hierarchy
         let parent = full_path.parent().ok_or_else(|| {
             ErrorResponse::new("bad_request", Some("Invalid path".to_string()))
         })?;
         
         if parent.exists() {
+            // Parent exists - canonicalize and verify
             let canonical_parent = parent.canonicalize().map_err(|_| {
                 ErrorResponse::new("internal_error", Some("Path resolution failed".to_string()))
             })?;
             
             // Verify parent is under base_dir
-            let canonical_base = base_dir.canonicalize().map_err(|_| {
-                ErrorResponse::new("internal_error", Some("Base path resolution failed".to_string()))
-            })?;
-            
             if !canonical_parent.starts_with(&canonical_base) {
                 return Err(ErrorResponse::new(
                     "bad_request",
@@ -184,27 +199,18 @@ fn validate_and_resolve_path(
             // Return the full non-canonical path for creation
             full_path
         } else {
-            // Parent doesn't exist yet - build and validate manually
+            // Parent doesn't exist yet - verify it would be under base_dir when created
+            // We've already validated that relative_path doesn't contain .. or . components,
+            // so a simple prefix check on the constructed path is safe
+            if !full_path.starts_with(&canonical_base) {
+                return Err(ErrorResponse::new(
+                    "bad_request",
+                    Some("Path escapes data root".to_string()),
+                ));
+            }
             full_path
         }
     };
-
-    // Final check: ensure the path is under base_dir
-    let canonical_base = if base_dir.exists() {
-        base_dir.canonicalize().map_err(|_| {
-            ErrorResponse::new("internal_error", Some("Base path resolution failed".to_string()))
-        })?
-    } else {
-        base_dir.to_path_buf()
-    };
-
-    // For existing paths, verify they're under the base
-    if canonical.exists() && !canonical.starts_with(&canonical_base) {
-        return Err(ErrorResponse::new(
-            "bad_request",
-            Some("Path escapes data root".to_string()),
-        ));
-    }
 
     Ok(canonical)
 }
@@ -366,15 +372,24 @@ async fn api_put_data(
 
     // Read body with size limit (10MB to prevent DoS)
     const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10MB
-    let body_bytes = axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE)
-        .await
-        .map_err(|e| {
-            if e.to_string().contains("length limit") {
-                ErrorResponse::new("payload_too_large", Some("Request body exceeds 10MB limit".to_string()))
+    let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            // Check if error is due to size limit by examining error source chain
+            let err_str = format!("{:?}", e);
+            if err_str.contains("length limit") || err_str.contains("body too large") {
+                return Err(ErrorResponse::new(
+                    "payload_too_large",
+                    Some("Request body exceeds 10MB limit".to_string()),
+                ));
             } else {
-                ErrorResponse::new("internal_error", Some("Failed to read request body".to_string()))
+                return Err(ErrorResponse::new(
+                    "internal_error",
+                    Some("Failed to read request body".to_string()),
+                ));
             }
-        })?;
+        }
+    };
 
     // Atomic write: write to temp file then rename
     // Use unique temp file name to avoid race conditions
@@ -391,25 +406,31 @@ async fn api_put_data(
         .map(|p| p.join(&temp_filename))
         .unwrap_or_else(|| PathBuf::from(&temp_filename));
     
+    // Helper to cleanup temp file on error
+    let cleanup_temp = || async {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+    };
+    
     let mut temp_file = File::create(&temp_path)
         .await
         .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create temp file".to_string())))?;
 
-    temp_file
-        .write_all(&body_bytes)
-        .await
-        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to write temp file".to_string())))?;
+    if let Err(_) = temp_file.write_all(&body_bytes).await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to write temp file".to_string())));
+    }
 
-    temp_file
-        .sync_all()
-        .await
-        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to sync temp file".to_string())))?;
+    if let Err(_) = temp_file.sync_all().await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to sync temp file".to_string())));
+    }
 
     drop(temp_file);
 
-    tokio::fs::rename(&temp_path, &resolved_path)
-        .await
-        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to rename temp file".to_string())))?;
+    if let Err(_) = tokio::fs::rename(&temp_path, &resolved_path).await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to rename temp file".to_string())));
+    }
 
     Ok((StatusCode::CREATED, "").into_response())
 }
