@@ -1,11 +1,483 @@
 use axum::{
-    extract::Path,
-    http::StatusCode,
+    extract::{Path, Request},
+    http::{header, StatusCode},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::get,
-    Router,
+    routing::{delete, get, put},
+    Json, Router,
 };
-use std::fs;
+use serde::Serialize;
+use std::{
+    ffi::{CStr, CString},
+    fs,
+    path::{Path as StdPath, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::SystemTime,
+};
+use tokio::{
+    fs::{create_dir_all, remove_dir_all, remove_file, File},
+    io::{AsyncReadExt, AsyncWriteExt},
+};
+
+// Global counter for unique temp file names
+// Used to prevent race conditions when multiple requests write to the same file concurrently
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// Error response structure
+#[derive(Serialize, Debug)]
+struct ErrorResponse {
+    error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl ErrorResponse {
+    fn new(error: &str, message: Option<String>) -> Self {
+        Self {
+            error: error.to_string(),
+            message,
+        }
+    }
+}
+
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
+        let status = match self.error.as_str() {
+            "bad_request" => StatusCode::BAD_REQUEST,
+            "unauthorized" => StatusCode::UNAUTHORIZED,
+            "not_found" => StatusCode::NOT_FOUND,
+            "conflict" => StatusCode::CONFLICT,
+            "payload_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, Json(self)).into_response()
+    }
+}
+
+// Directory entry structure for listings
+#[derive(Serialize)]
+struct DirEntry {
+    name: String,
+    #[serde(rename = "type")]
+    entry_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
+    mtime: i64,
+}
+
+// User info extracted from getpwnam
+#[derive(Clone)]
+struct UserInfo {
+    home_dir: PathBuf,
+}
+
+// Get user home directory via getpwnam_r (thread-safe)
+fn get_user_home(username: &str) -> Option<PathBuf> {
+    unsafe {
+        let c_username = CString::new(username).ok()?;
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut pwd_ptr: *mut libc::passwd = std::ptr::null_mut();
+        
+        // Allocate buffer for getpwnam_r (recommended size per POSIX)
+        const GETPWNAM_BUFFER_SIZE: usize = 16384;
+        let mut buf = vec![0u8; GETPWNAM_BUFFER_SIZE];
+        
+        let result = libc::getpwnam_r(
+            c_username.as_ptr(),
+            &mut pwd,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            GETPWNAM_BUFFER_SIZE,
+            &mut pwd_ptr,
+        );
+        
+        if result != 0 || pwd_ptr.is_null() {
+            return None;
+        }
+        
+        let home = CStr::from_ptr(pwd.pw_dir);
+        let home_str = home.to_str().ok()?;
+        Some(PathBuf::from(home_str))
+    }
+}
+
+// Path validation and security functions
+fn validate_path_component(component: &str) -> Result<(), ErrorResponse> {
+    if component.is_empty() {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Empty path component".to_string()),
+        ));
+    }
+    if component == "." || component == ".." {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Path contains '.' or '..' components".to_string()),
+        ));
+    }
+    if component.contains('\0') {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Path contains NUL byte".to_string()),
+        ));
+    }
+    // Reject Windows drive prefixes
+    if component.len() == 2 && component.chars().nth(1) == Some(':') {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Invalid path format".to_string()),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_and_resolve_path(
+    base_dir: &StdPath,
+    relative_path: &str,
+) -> Result<PathBuf, ErrorResponse> {
+    // Reject leading slash
+    if relative_path.starts_with('/') {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Path must be relative".to_string()),
+        ));
+    }
+
+    // Split and validate each component
+    let components: Vec<&str> = relative_path.split('/').collect();
+    for component in &components {
+        validate_path_component(component)?;
+    }
+
+    // Build the full path
+    let mut full_path = base_dir.to_path_buf();
+    for component in components {
+        full_path.push(component);
+    }
+
+    // Get canonical base for validation
+    let canonical_base = if base_dir.exists() {
+        base_dir.canonicalize().map_err(|_| {
+            ErrorResponse::new("internal_error", Some("Base path resolution failed".to_string()))
+        })?
+    } else {
+        base_dir.to_path_buf()
+    };
+
+    // Canonicalize if it exists, otherwise validate parent hierarchy
+    let canonical = if full_path.exists() {
+        let resolved = full_path
+            .canonicalize()
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Path resolution failed".to_string())))?;
+        
+        // Verify it's under base_dir
+        if !resolved.starts_with(&canonical_base) {
+            return Err(ErrorResponse::new(
+                "bad_request",
+                Some("Path escapes data root".to_string()),
+            ));
+        }
+        resolved
+    } else {
+        // For non-existent paths (PUT), validate the parent hierarchy
+        let parent = full_path.parent().ok_or_else(|| {
+            ErrorResponse::new("bad_request", Some("Invalid path".to_string()))
+        })?;
+        
+        if parent.exists() {
+            // Parent exists - canonicalize and verify
+            let canonical_parent = parent.canonicalize().map_err(|_| {
+                ErrorResponse::new("internal_error", Some("Path resolution failed".to_string()))
+            })?;
+            
+            // Verify parent is under base_dir
+            if !canonical_parent.starts_with(&canonical_base) {
+                return Err(ErrorResponse::new(
+                    "bad_request",
+                    Some("Path escapes data root".to_string()),
+                ));
+            }
+            
+            // Return the full non-canonical path for creation
+            full_path
+        } else {
+            // Parent doesn't exist yet - verify it would be under base_dir when created
+            // We've already validated that relative_path doesn't contain .. or . components,
+            // so a simple prefix check on the constructed path is safe
+            if !full_path.starts_with(&canonical_base) {
+                return Err(ErrorResponse::new(
+                    "bad_request",
+                    Some("Path escapes data root".to_string()),
+                ));
+            }
+            full_path
+        }
+    };
+
+    Ok(canonical)
+}
+
+// Middleware to extract and validate user from X-Remote-User header
+async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, ErrorResponse> {
+    let username = req
+        .headers()
+        .get("X-Remote-User")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| {
+            ErrorResponse::new("unauthorized", Some("Missing X-Remote-User header".to_string()))
+        })?;
+
+    let home_dir = get_user_home(username).ok_or_else(|| {
+        ErrorResponse::new(
+            "unauthorized",
+            Some(format!("User '{}' not found", username)),
+        )
+    })?;
+
+    // Store user info in request extensions
+    req.extensions_mut().insert(UserInfo { home_dir });
+
+    Ok(next.run(req).await)
+}
+
+// GET /api/<app_id>/data/<path>
+async fn api_get_data(
+    Path((app_id, path)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, ErrorResponse> {
+    let user_info = req
+        .extensions()
+        .get::<UserInfo>()
+        .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
+
+    let data_root = user_info
+        .home_dir
+        .join(".local/share/fleabox")
+        .join(&app_id)
+        .join("data");
+
+    // If data root doesn't exist, return 404
+    if !data_root.exists() {
+        return Err(ErrorResponse::new("not_found", Some("Data root does not exist".to_string())));
+    }
+
+    let resolved_path = validate_and_resolve_path(&data_root, &path)?;
+
+    if !resolved_path.exists() {
+        return Err(ErrorResponse::new("not_found", Some("Path not found".to_string())));
+    }
+
+    let metadata = tokio::fs::metadata(&resolved_path)
+        .await
+        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read metadata".to_string())))?;
+
+    if metadata.is_file() {
+        // Serve file with content type
+        let mut file = File::open(&resolved_path)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to open file".to_string())))?;
+
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read file".to_string())))?;
+
+        let content_type = mime_guess::from_path(&resolved_path)
+            .first_or_octet_stream()
+            .to_string();
+
+        Ok((
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, content_type)],
+            contents,
+        )
+            .into_response())
+    } else if metadata.is_dir() {
+        // Return directory listing as JSON
+        let mut entries = Vec::new();
+        let mut read_dir = tokio::fs::read_dir(&resolved_path)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read directory".to_string())))?;
+
+        while let Some(entry) = read_dir
+            .next_entry()
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read directory entry".to_string())))?
+        {
+            let metadata = entry
+                .metadata()
+                .await
+                .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read entry metadata".to_string())))?;
+
+            let mtime = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            let name = entry.file_name().to_string_lossy().to_string();
+            let entry_type = if metadata.is_dir() { "dir" } else { "file" };
+            let size = if metadata.is_file() {
+                Some(metadata.len())
+            } else {
+                None
+            };
+
+            entries.push(DirEntry {
+                name,
+                entry_type: entry_type.to_string(),
+                size,
+                mtime,
+            });
+        }
+
+        Ok((StatusCode::OK, Json(entries)).into_response())
+    } else {
+        Err(ErrorResponse::new("internal_error", Some("Unsupported file type".to_string())))
+    }
+}
+
+// PUT /api/<app_id>/data/<path>
+async fn api_put_data(
+    Path((app_id, path)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, ErrorResponse> {
+    let user_info = req
+        .extensions()
+        .get::<UserInfo>()
+        .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
+
+    let data_root = user_info
+        .home_dir
+        .join(".local/share/fleabox")
+        .join(&app_id)
+        .join("data");
+
+    // Create data root lazily on first write
+    if !data_root.exists() {
+        create_dir_all(&data_root)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create data root".to_string())))?;
+    }
+
+    let resolved_path = validate_and_resolve_path(&data_root, &path)?;
+
+    // Ensure parent directory exists
+    if let Some(parent) = resolved_path.parent() {
+        if !parent.exists() {
+            create_dir_all(parent)
+                .await
+                .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create parent directory".to_string())))?;
+        }
+    }
+
+    // Read body with size limit (10MB to prevent DoS)
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10MB
+    let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            // Check if error is due to size limit by examining error source chain
+            let err_str = format!("{:?}", e);
+            if err_str.contains("length limit") || err_str.contains("body too large") {
+                return Err(ErrorResponse::new(
+                    "payload_too_large",
+                    Some("Request body exceeds 10MB limit".to_string()),
+                ));
+            } else {
+                return Err(ErrorResponse::new(
+                    "internal_error",
+                    Some("Failed to read request body".to_string()),
+                ));
+            }
+        }
+    };
+
+    // Atomic write: write to temp file then rename
+    // Use unique temp file name to avoid race conditions
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_filename = format!(
+        ".{}.tmp.{}.{}",
+        resolved_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file"),
+        std::process::id(),
+        counter
+    );
+    let temp_path = resolved_path.parent()
+        .map(|p| p.join(&temp_filename))
+        .unwrap_or_else(|| PathBuf::from(&temp_filename));
+    
+    // Helper to cleanup temp file on error
+    let cleanup_temp = || async {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+    };
+    
+    let mut temp_file = File::create(&temp_path)
+        .await
+        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create temp file".to_string())))?;
+
+    if let Err(_) = temp_file.write_all(&body_bytes).await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to write temp file".to_string())));
+    }
+
+    if let Err(_) = temp_file.sync_all().await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to sync temp file".to_string())));
+    }
+
+    drop(temp_file);
+
+    if let Err(_) = tokio::fs::rename(&temp_path, &resolved_path).await {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to rename temp file".to_string())));
+    }
+
+    Ok((StatusCode::CREATED, "").into_response())
+}
+
+// DELETE /api/<app_id>/data/<path>
+async fn api_delete_data(
+    Path((app_id, path)): Path<(String, String)>,
+    req: Request,
+) -> Result<Response, ErrorResponse> {
+    let user_info = req
+        .extensions()
+        .get::<UserInfo>()
+        .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
+
+    let data_root = user_info
+        .home_dir
+        .join(".local/share/fleabox")
+        .join(&app_id)
+        .join("data");
+
+    if !data_root.exists() {
+        return Err(ErrorResponse::new("not_found", Some("Data root does not exist".to_string())));
+    }
+
+    let resolved_path = validate_and_resolve_path(&data_root, &path)?;
+
+    if !resolved_path.exists() {
+        return Err(ErrorResponse::new("not_found", Some("Path not found".to_string())));
+    }
+
+    let metadata = tokio::fs::metadata(&resolved_path)
+        .await
+        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read metadata".to_string())))?;
+
+    if metadata.is_file() {
+        remove_file(&resolved_path)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to delete file".to_string())))?;
+    } else if metadata.is_dir() {
+        remove_dir_all(&resolved_path)
+            .await
+            .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to delete directory".to_string())))?;
+    }
+
+    Ok((StatusCode::OK, "").into_response())
+}
 
 async fn list_directories() -> Html<String> {
     let path = "/srv/fleabox";
@@ -180,7 +652,16 @@ async fn serve_app_index(Path(app): Path<String>) -> Response {
 
 #[tokio::main]
 async fn main() {
+    // API routes with authentication middleware
+    let api_routes = Router::new()
+        .route("/api/:app_id/data/*path", get(api_get_data))
+        .route("/api/:app_id/data/*path", put(api_put_data))
+        .route("/api/:app_id/data/*path", delete(api_delete_data))
+        .layer(middleware::from_fn(auth_middleware));
+
+    // Main app with both API and static routes
     let app = Router::new()
+        .merge(api_routes)
         .route("/", get(list_directories))
         .route("/:app", get(serve_app_index))
         .route("/:app/*file", get(serve_app_file));
@@ -191,4 +672,105 @@ async fn main() {
     
     println!("Server running on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::create_dir_all as std_create_dir_all;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_validate_path_component_valid() {
+        assert!(validate_path_component("test").is_ok());
+        assert!(validate_path_component("test-file").is_ok());
+        assert!(validate_path_component("test_file").is_ok());
+        assert!(validate_path_component("test.txt").is_ok());
+    }
+
+    #[test]
+    fn test_validate_path_component_dot() {
+        assert!(validate_path_component(".").is_err());
+        assert!(validate_path_component("..").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_component_empty() {
+        assert!(validate_path_component("").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_component_nul() {
+        assert!(validate_path_component("test\0file").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_component_windows_drive() {
+        assert!(validate_path_component("C:").is_err());
+        assert!(validate_path_component("D:").is_err());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_leading_slash() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = validate_and_resolve_path(temp_dir.path(), "/test");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_dot_components() {
+        let temp_dir = TempDir::new().unwrap();
+        assert!(validate_and_resolve_path(temp_dir.path(), "./test").is_err());
+        assert!(validate_and_resolve_path(temp_dir.path(), "../test").is_err());
+        assert!(validate_and_resolve_path(temp_dir.path(), "test/../other").is_err());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_double_slash() {
+        let temp_dir = TempDir::new().unwrap();
+        let result = validate_and_resolve_path(temp_dir.path(), "test//file");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_valid_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+        std::fs::File::create(&test_file).unwrap();
+
+        let result = validate_and_resolve_path(temp_dir.path(), "test.txt");
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved, test_file.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_valid_nested() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_dir = temp_dir.path().join("dir1").join("dir2");
+        std_create_dir_all(&nested_dir).unwrap();
+        let test_file = nested_dir.join("test.txt");
+        std::fs::File::create(&test_file).unwrap();
+
+        let result = validate_and_resolve_path(temp_dir.path(), "dir1/dir2/test.txt");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_and_resolve_path_nonexistent() {
+        let temp_dir = TempDir::new().unwrap();
+        let parent_dir = temp_dir.path().join("parent");
+        std_create_dir_all(&parent_dir).unwrap();
+
+        // Non-existent file in existing parent should be ok for PUT
+        let result = validate_and_resolve_path(temp_dir.path(), "parent/newfile.txt");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_user_home_invalid() {
+        // Test with a user that should not exist
+        let result = get_user_home("nonexistent_user_12345");
+        assert!(result.is_none());
+    }
 }
