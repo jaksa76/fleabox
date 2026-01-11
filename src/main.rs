@@ -20,6 +20,7 @@ use tokio::{
 };
 
 // Global counter for unique temp file names
+// Used to prevent race conditions when multiple requests write to the same file concurrently
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // Error response structure
@@ -77,15 +78,15 @@ fn get_user_home(username: &str) -> Option<PathBuf> {
         let mut pwd: libc::passwd = std::mem::zeroed();
         let mut pwd_ptr: *mut libc::passwd = std::ptr::null_mut();
         
-        // Allocate buffer for getpwnam_r
-        let buflen = 16384; // Recommended buffer size
-        let mut buf = vec![0u8; buflen];
+        // Allocate buffer for getpwnam_r (recommended size per POSIX)
+        const GETPWNAM_BUFFER_SIZE: usize = 16384;
+        let mut buf = vec![0u8; GETPWNAM_BUFFER_SIZE];
         
         let result = libc::getpwnam_r(
             c_username.as_ptr(),
             &mut pwd,
             buf.as_mut_ptr() as *mut libc::c_char,
-            buflen,
+            GETPWNAM_BUFFER_SIZE,
             &mut pwd_ptr,
         );
         
