@@ -11,12 +11,16 @@ use std::{
     ffi::{CStr, CString},
     fs,
     path::{Path as StdPath, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
 };
 use tokio::{
     fs::{create_dir_all, remove_dir_all, remove_file, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
+
+// Global counter for unique temp file names
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // Error response structure
 #[derive(Serialize, Debug)]
@@ -66,15 +70,30 @@ struct UserInfo {
     home_dir: PathBuf,
 }
 
-// Get user home directory via getpwnam
+// Get user home directory via getpwnam_r (thread-safe)
 fn get_user_home(username: &str) -> Option<PathBuf> {
     unsafe {
         let c_username = CString::new(username).ok()?;
-        let passwd = libc::getpwnam(c_username.as_ptr());
-        if passwd.is_null() {
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut pwd_ptr: *mut libc::passwd = std::ptr::null_mut();
+        
+        // Allocate buffer for getpwnam_r
+        let buflen = 16384; // Recommended buffer size
+        let mut buf = vec![0u8; buflen];
+        
+        let result = libc::getpwnam_r(
+            c_username.as_ptr(),
+            &mut pwd,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buflen,
+            &mut pwd_ptr,
+        );
+        
+        if result != 0 || pwd_ptr.is_null() {
             return None;
         }
-        let home = CStr::from_ptr((*passwd).pw_dir);
+        
+        let home = CStr::from_ptr(pwd.pw_dir);
         let home_str = home.to_str().ok()?;
         Some(PathBuf::from(home_str))
     }
@@ -345,13 +364,33 @@ async fn api_put_data(
         }
     }
 
-    // Read body
-    let body_bytes = axum::body::to_bytes(req.into_body(), usize::MAX)
+    // Read body with size limit (10MB to prevent DoS)
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10MB
+    let body_bytes = axum::body::to_bytes(req.into_body(), MAX_BODY_SIZE)
         .await
-        .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to read request body".to_string())))?;
+        .map_err(|e| {
+            if e.to_string().contains("length limit") {
+                ErrorResponse::new("payload_too_large", Some("Request body exceeds 10MB limit".to_string()))
+            } else {
+                ErrorResponse::new("internal_error", Some("Failed to read request body".to_string()))
+            }
+        })?;
 
     // Atomic write: write to temp file then rename
-    let temp_path = resolved_path.with_extension("tmp");
+    // Use unique temp file name to avoid race conditions
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_filename = format!(
+        ".{}.tmp.{}.{}",
+        resolved_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file"),
+        std::process::id(),
+        counter
+    );
+    let temp_path = resolved_path.parent()
+        .map(|p| p.join(&temp_filename))
+        .unwrap_or_else(|| PathBuf::from(&temp_filename));
+    
     let mut temp_file = File::create(&temp_path)
         .await
         .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create temp file".to_string())))?;
