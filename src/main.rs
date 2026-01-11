@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::Serialize;
 use std::{
+    env,
     ffi::{CStr, CString},
     fs,
     path::{Path as StdPath, PathBuf},
@@ -216,7 +217,34 @@ fn validate_and_resolve_path(
     Ok(canonical)
 }
 
-// Middleware to extract and validate user from X-Remote-User header
+// Get the current system user
+fn get_current_user() -> Option<String> {
+    unsafe {
+        let uid = libc::getuid();
+        let mut pwd: libc::passwd = std::mem::zeroed();
+        let mut pwd_ptr: *mut libc::passwd = std::ptr::null_mut();
+        
+        const GETPWUID_BUFFER_SIZE: usize = 16384;
+        let mut buf = vec![0u8; GETPWUID_BUFFER_SIZE];
+        
+        let result = libc::getpwuid_r(
+            uid,
+            &mut pwd,
+            buf.as_mut_ptr() as *mut libc::c_char,
+            GETPWUID_BUFFER_SIZE,
+            &mut pwd_ptr,
+        );
+        
+        if result != 0 || pwd_ptr.is_null() {
+            return None;
+        }
+        
+        let username = CStr::from_ptr(pwd.pw_name);
+        username.to_str().ok().map(|s| s.to_string())
+    }
+}
+
+// Middleware to extract and validate user from X-Remote-User header or use current user in dev mode
 async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, ErrorResponse> {
     let username = req
         .headers()
@@ -229,6 +257,25 @@ async fn auth_middleware(mut req: Request, next: Next) -> Result<Response, Error
     let home_dir = get_user_home(username).ok_or_else(|| {
         ErrorResponse::new(
             "unauthorized",
+            Some(format!("User '{}' not found", username)),
+        )
+    })?;
+
+    // Store user info in request extensions
+    req.extensions_mut().insert(UserInfo { home_dir });
+
+    Ok(next.run(req).await)
+}
+
+// Middleware for dev mode - uses current system user instead of X-Remote-User header
+async fn dev_auth_middleware(mut req: Request, next: Next) -> Result<Response, ErrorResponse> {
+    let username = get_current_user().ok_or_else(|| {
+        ErrorResponse::new("internal_error", Some("Failed to get current user".to_string()))
+    })?;
+
+    let home_dir = get_user_home(&username).ok_or_else(|| {
+        ErrorResponse::new(
+            "internal_error",
             Some(format!("User '{}' not found", username)),
         )
     })?;
@@ -652,12 +699,26 @@ async fn serve_app_index(Path(app): Path<String>) -> Response {
 
 #[tokio::main]
 async fn main() {
-    // API routes with authentication middleware
-    let api_routes = Router::new()
-        .route("/api/:app_id/data/*path", get(api_get_data))
-        .route("/api/:app_id/data/*path", put(api_put_data))
-        .route("/api/:app_id/data/*path", delete(api_delete_data))
-        .layer(middleware::from_fn(auth_middleware));
+    // Parse command line arguments
+    let args: Vec<String> = env::args().collect();
+    let dev_mode = args.contains(&"--dev".to_string());
+
+    // API routes with authentication middleware (proxy mode or dev mode)
+    let api_routes = if dev_mode {
+        println!("Running in development mode (using current user)");
+        Router::new()
+            .route("/api/:app_id/data/*path", get(api_get_data))
+            .route("/api/:app_id/data/*path", put(api_put_data))
+            .route("/api/:app_id/data/*path", delete(api_delete_data))
+            .layer(middleware::from_fn(dev_auth_middleware))
+    } else {
+        println!("Running in production mode (using X-Remote-User header)");
+        Router::new()
+            .route("/api/:app_id/data/*path", get(api_get_data))
+            .route("/api/:app_id/data/*path", put(api_put_data))
+            .route("/api/:app_id/data/*path", delete(api_delete_data))
+            .layer(middleware::from_fn(auth_middleware))
+    };
 
     // Main app with both API and static routes
     let app = Router::new()

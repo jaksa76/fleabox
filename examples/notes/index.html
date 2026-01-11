@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes - Fleabox</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            font-size: 42px;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        
+        .subtitle {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        
+        .toolbar {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-box {
+            flex: 1;
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #f5576c;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .notes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        
+        .note-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .note-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        
+        .note-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .note-content {
+            color: #666;
+            line-height: 1.6;
+            max-height: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .note-date {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+        }
+        
+        .note-actions {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .note-card:hover .note-actions {
+            opacity: 1;
+        }
+        
+        .note-actions button {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        
+        .delete-btn {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-title {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .close-btn {
+            background: #e0e0e0;
+            color: #666;
+            padding: 8px 16px;
+        }
+        
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            margin-bottom: 15px;
+        }
+        
+        input[type="text"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #f5576c;
+        }
+        
+        textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: white;
+        }
+        
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+        
+        .empty-state h2 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .error {
+            background: #ff4757;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .error.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📓 Notes</h1>
+            <div class="subtitle">Powered by Fleabox</div>
+        </header>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="toolbar">
+            <input 
+                type="text" 
+                class="search-box" 
+                id="searchBox"
+                placeholder="Search notes..."
+            >
+            <button onclick="openNewNoteModal()">+ New Note</button>
+        </div>
+        
+        <div class="notes-grid" id="notesGrid">
+            <div class="empty-state">
+                <svg fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"></path>
+                </svg>
+                <h2>No notes yet</h2>
+                <p>Click "New Note" to create your first note!</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Note Modal -->
+    <div class="modal" id="noteModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">New Note</div>
+                <button class="close-btn" onclick="closeModal()">Close</button>
+            </div>
+            <input 
+                type="text" 
+                id="noteTitleInput" 
+                placeholder="Note title"
+                autocomplete="off"
+            >
+            <textarea 
+                id="noteContentInput" 
+                placeholder="Write your note here..."
+            ></textarea>
+            <div class="modal-actions">
+                <button onclick="closeModal()" class="close-btn">Cancel</button>
+                <button onclick="saveNote()">Save Note</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const APP_ID = 'notes';
+        let notes = [];
+        let currentNoteId = null;
+        let searchQuery = '';
+        
+        // Show error message
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.classList.add('show');
+            setTimeout(() => errorEl.classList.remove('show'), 5000);
+        }
+        
+        // Load notes from Fleabox API
+        async function loadNotes() {
+            try {
+                const response = await fetch(`/api/${APP_ID}/data/notes.json`);
+                if (response.ok) {
+                    notes = await response.json();
+                } else if (response.status === 404) {
+                    notes = [];
+                } else {
+                    throw new Error('Failed to load notes');
+                }
+                renderNotes();
+            } catch (error) {
+                showError('Error loading notes: ' + error.message);
+            }
+        }
+        
+        // Save notes to Fleabox API
+        async function saveNotes() {
+            try {
+                const response = await fetch(`/api/${APP_ID}/data/notes.json`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(notes)
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to save notes');
+                }
+            } catch (error) {
+                showError('Error saving notes: ' + error.message);
+            }
+        }
+        
+        // Open modal for new note
+        function openNewNoteModal() {
+            currentNoteId = null;
+            document.getElementById('modalTitle').textContent = 'New Note';
+            document.getElementById('noteTitleInput').value = '';
+            document.getElementById('noteContentInput').value = '';
+            document.getElementById('noteModal').classList.add('show');
+            document.getElementById('noteTitleInput').focus();
+        }
+        
+        // Open modal to edit existing note
+        function editNote(id) {
+            const note = notes.find(n => n.id === id);
+            if (!note) return;
+            
+            currentNoteId = id;
+            document.getElementById('modalTitle').textContent = 'Edit Note';
+            document.getElementById('noteTitleInput').value = note.title;
+            document.getElementById('noteContentInput').value = note.content;
+            document.getElementById('noteModal').classList.add('show');
+            document.getElementById('noteTitleInput').focus();
+        }
+        
+        // Close modal
+        function closeModal() {
+            document.getElementById('noteModal').classList.remove('show');
+            currentNoteId = null;
+        }
+        
+        // Save note (create or update)
+        async function saveNote() {
+            const title = document.getElementById('noteTitleInput').value.trim();
+            const content = document.getElementById('noteContentInput').value.trim();
+            
+            if (!title && !content) {
+                showError('Please enter a title or content');
+                return;
+            }
+            
+            if (currentNoteId) {
+                // Update existing note
+                const note = notes.find(n => n.id === currentNoteId);
+                if (note) {
+                    note.title = title || 'Untitled';
+                    note.content = content;
+                    note.updatedAt = new Date().toISOString();
+                }
+            } else {
+                // Create new note
+                const note = {
+                    id: Date.now(),
+                    title: title || 'Untitled',
+                    content: content,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                notes.unshift(note);
+            }
+            
+            await saveNotes();
+            renderNotes();
+            closeModal();
+        }
+        
+        // Delete note
+        async function deleteNote(id, event) {
+            event.stopPropagation();
+            
+            if (!confirm('Are you sure you want to delete this note?')) {
+                return;
+            }
+            
+            notes = notes.filter(n => n.id !== id);
+            await saveNotes();
+            renderNotes();
+        }
+        
+        // Format date
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            
+            if (days === 0) return 'Today';
+            if (days === 1) return 'Yesterday';
+            if (days < 7) return `${days} days ago`;
+            
+            return date.toLocaleDateString();
+        }
+        
+        // Render notes
+        function renderNotes() {
+            const notesGrid = document.getElementById('notesGrid');
+            
+            // Filter notes by search query
+            const filteredNotes = notes.filter(note => {
+                const query = searchQuery.toLowerCase();
+                return note.title.toLowerCase().includes(query) || 
+                       note.content.toLowerCase().includes(query);
+            });
+            
+            if (filteredNotes.length === 0) {
+                if (searchQuery) {
+                    notesGrid.innerHTML = `
+                        <div class="empty-state">
+                            <svg fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"></path>
+                            </svg>
+                            <h2>No notes found</h2>
+                            <p>Try a different search query</p>
+                        </div>
+                    `;
+                } else {
+                    notesGrid.innerHTML = `
+                        <div class="empty-state">
+                            <svg fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"></path>
+                            </svg>
+                            <h2>No notes yet</h2>
+                            <p>Click "New Note" to create your first note!</p>
+                        </div>
+                    `;
+                }
+                return;
+            }
+            
+            notesGrid.innerHTML = filteredNotes.map(note => `
+                <div class="note-card" onclick="editNote(${note.id})">
+                    <div class="note-actions">
+                        <button onclick="deleteNote(${note.id}, event)" class="delete-btn">Delete</button>
+                    </div>
+                    <div class="note-title">${escapeHtml(note.title)}</div>
+                    <div class="note-content">${escapeHtml(note.content)}</div>
+                    <div class="note-date">${formatDate(note.updatedAt)}</div>
+                </div>
+            `).join('');
+        }
+        
+        // Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Search functionality
+        document.getElementById('searchBox').addEventListener('input', (e) => {
+            searchQuery = e.target.value.trim();
+            renderNotes();
+        });
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+        
+        // Close modal when clicking outside
+        document.getElementById('noteModal').addEventListener('click', (e) => {
+            if (e.target.id === 'noteModal') {
+                closeModal();
+            }
+        });
+        
+        // Load notes on startup
+        loadNotes();
+    </script>
+</body>
+</html>

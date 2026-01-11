@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habit Tracker - Fleabox</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            color: #333;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 32px;
+            margin-bottom: 5px;
+        }
+        
+        .subtitle {
+            opacity: 0.8;
+            font-size: 14px;
+        }
+        
+        .toolbar {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .week-nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .week-label {
+            font-weight: 600;
+            color: #333;
+            min-width: 150px;
+            text-align: center;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            color: #333;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .habits-container {
+            padding: 20px;
+        }
+        
+        .habit-row {
+            display: grid;
+            grid-template-columns: 200px repeat(7, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        
+        .habit-name {
+            font-weight: 600;
+            color: #333;
+            padding: 10px;
+        }
+        
+        .habit-day {
+            aspect-ratio: 1;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .habit-day:hover {
+            border-color: #a8edea;
+            background: #f0fffe;
+        }
+        
+        .habit-day.completed {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            border-color: #a8edea;
+        }
+        
+        .habit-day.completed::after {
+            content: '✓';
+            font-size: 24px;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .day-label {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 3px;
+        }
+        
+        .day-date {
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .header-row {
+            display: grid;
+            grid-template-columns: 200px repeat(7, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .header-cell {
+            text-align: center;
+        }
+        
+        .add-habit {
+            padding: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .add-form {
+            display: none;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .add-form.show {
+            display: flex;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #a8edea;
+        }
+        
+        .delete-habit-btn {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            padding: 5px 10px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+        
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+        
+        .error {
+            background: #ff4757;
+            color: white;
+            padding: 10px 20px;
+            margin: 20px;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        .stats {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-around;
+            font-size: 14px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #a8edea;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>✨ Habit Tracker</h1>
+            <div class="subtitle">Powered by Fleabox</div>
+        </header>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="toolbar">
+            <div class="week-nav">
+                <button onclick="previousWeek()">← Previous</button>
+                <div class="week-label" id="weekLabel"></div>
+                <button onclick="nextWeek()">Next →</button>
+                <button onclick="currentWeek()">This Week</button>
+            </div>
+            <button onclick="toggleAddForm()">+ Add Habit</button>
+        </div>
+        
+        <div class="add-habit">
+            <div class="add-form" id="addForm">
+                <input 
+                    type="text" 
+                    id="habitInput" 
+                    placeholder="Enter habit name (e.g., Exercise, Read, Meditate)"
+                    autocomplete="off"
+                >
+                <button onclick="addHabit()">Add</button>
+                <button onclick="cancelAdd()">Cancel</button>
+            </div>
+        </div>
+        
+        <div class="habits-container" id="habitsContainer">
+            <div class="empty-state">
+                <svg fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"></path>
+                </svg>
+                <p>No habits yet. Add one above to start tracking!</p>
+            </div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="statTotal">0</div>
+                <div class="stat-label">Total Completions</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="statWeek">0</div>
+                <div class="stat-label">This Week</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="statStreak">0</div>
+                <div class="stat-label">Current Streak</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const APP_ID = 'habits';
+        let habits = [];
+        let completions = {};
+        let currentWeekStart = getWeekStart(new Date());
+        
+        // Get start of week (Monday)
+        function getWeekStart(date) {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            return new Date(d.setDate(diff));
+        }
+        
+        // Format date as YYYY-MM-DD
+        function formatDateKey(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+        
+        // Get week dates
+        function getWeekDates(weekStart) {
+            const dates = [];
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(weekStart);
+                date.setDate(weekStart.getDate() + i);
+                dates.push(date);
+            }
+            return dates;
+        }
+        
+        // Update week label
+        function updateWeekLabel() {
+            const weekEnd = new Date(currentWeekStart);
+            weekEnd.setDate(currentWeekStart.getDate() + 6);
+            
+            const startStr = currentWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const endStr = weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            
+            document.getElementById('weekLabel').textContent = `${startStr} - ${endStr}`;
+        }
+        
+        // Show error message
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.classList.add('show');
+            setTimeout(() => errorEl.classList.remove('show'), 5000);
+        }
+        
+        // Toggle add form
+        function toggleAddForm() {
+            const form = document.getElementById('addForm');
+            form.classList.toggle('show');
+            if (form.classList.contains('show')) {
+                document.getElementById('habitInput').focus();
+            }
+        }
+        
+        // Cancel add
+        function cancelAdd() {
+            document.getElementById('addForm').classList.remove('show');
+            document.getElementById('habitInput').value = '';
+        }
+        
+        // Load data from Fleabox API
+        async function loadData() {
+            try {
+                // Load habits
+                const habitsResponse = await fetch(`/api/${APP_ID}/data/habits.json`);
+                if (habitsResponse.ok) {
+                    habits = await habitsResponse.json();
+                } else if (habitsResponse.status !== 404) {
+                    throw new Error('Failed to load habits');
+                }
+                
+                // Load completions
+                const completionsResponse = await fetch(`/api/${APP_ID}/data/completions.json`);
+                if (completionsResponse.ok) {
+                    completions = await completionsResponse.json();
+                } else if (completionsResponse.status !== 404) {
+                    throw new Error('Failed to load completions');
+                }
+                
+                renderHabits();
+                updateStats();
+            } catch (error) {
+                showError('Error loading data: ' + error.message);
+            }
+        }
+        
+        // Save habits
+        async function saveHabits() {
+            try {
+                const response = await fetch(`/api/${APP_ID}/data/habits.json`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(habits)
+                });
+                if (!response.ok) throw new Error('Failed to save habits');
+            } catch (error) {
+                showError('Error saving habits: ' + error.message);
+            }
+        }
+        
+        // Save completions
+        async function saveCompletions() {
+            try {
+                const response = await fetch(`/api/${APP_ID}/data/completions.json`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(completions)
+                });
+                if (!response.ok) throw new Error('Failed to save completions');
+            } catch (error) {
+                showError('Error saving completions: ' + error.message);
+            }
+        }
+        
+        // Add habit
+        async function addHabit() {
+            const name = document.getElementById('habitInput').value.trim();
+            if (!name) return;
+            
+            const habit = {
+                id: Date.now(),
+                name: name,
+                createdAt: new Date().toISOString()
+            };
+            
+            habits.push(habit);
+            await saveHabits();
+            renderHabits();
+            cancelAdd();
+        }
+        
+        // Delete habit
+        async function deleteHabit(id) {
+            if (!confirm('Are you sure you want to delete this habit?')) return;
+            
+            habits = habits.filter(h => h.id !== id);
+            // Also remove completions for this habit
+            Object.keys(completions).forEach(key => {
+                if (completions[key]) {
+                    completions[key] = completions[key].filter(hId => hId !== id);
+                }
+            });
+            
+            await saveHabits();
+            await saveCompletions();
+            renderHabits();
+            updateStats();
+        }
+        
+        // Toggle completion
+        async function toggleCompletion(habitId, date) {
+            const dateKey = formatDateKey(date);
+            
+            if (!completions[dateKey]) {
+                completions[dateKey] = [];
+            }
+            
+            const index = completions[dateKey].indexOf(habitId);
+            if (index > -1) {
+                completions[dateKey].splice(index, 1);
+            } else {
+                completions[dateKey].push(habitId);
+            }
+            
+            await saveCompletions();
+            renderHabits();
+            updateStats();
+        }
+        
+        // Check if habit is completed on date
+        function isCompleted(habitId, date) {
+            const dateKey = formatDateKey(date);
+            return completions[dateKey] && completions[dateKey].includes(habitId);
+        }
+        
+        // Render habits
+        function renderHabits() {
+            const container = document.getElementById('habitsContainer');
+            
+            if (habits.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"></path>
+                        </svg>
+                        <p>No habits yet. Add one above to start tracking!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const weekDates = getWeekDates(currentWeekStart);
+            const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            
+            let html = '<div class="header-row"><div></div>';
+            weekDates.forEach((date, i) => {
+                const dateNum = date.getDate();
+                html += `<div class="header-cell">${dayNames[i]}<br>${dateNum}</div>`;
+            });
+            html += '</div>';
+            
+            habits.forEach(habit => {
+                html += `<div class="habit-row">`;
+                html += `<div class="habit-name">
+                    ${escapeHtml(habit.name)}
+                    <button class="delete-habit-btn" onclick="deleteHabit(${habit.id})">×</button>
+                </div>`;
+                
+                weekDates.forEach(date => {
+                    const completed = isCompleted(habit.id, date);
+                    html += `<div class="habit-day ${completed ? 'completed' : ''}" 
+                                  onclick="toggleCompletion(${habit.id}, new Date('${date.toISOString()}'))">
+                             </div>`;
+                });
+                
+                html += '</div>';
+            });
+            
+            container.innerHTML = html;
+            updateWeekLabel();
+        }
+        
+        // Update statistics
+        function updateStats() {
+            const weekDates = getWeekDates(currentWeekStart);
+            
+            // Total completions
+            let total = 0;
+            Object.values(completions).forEach(arr => {
+                total += arr.length;
+            });
+            
+            // This week completions
+            let weekTotal = 0;
+            weekDates.forEach(date => {
+                const dateKey = formatDateKey(date);
+                if (completions[dateKey]) {
+                    weekTotal += completions[dateKey].length;
+                }
+            });
+            
+            // Current streak (simplified - just consecutive days with any completion)
+            let streak = 0;
+            const today = new Date();
+            for (let i = 0; i < 365; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const dateKey = formatDateKey(date);
+                
+                if (completions[dateKey] && completions[dateKey].length > 0) {
+                    streak++;
+                } else if (i > 0) {
+                    break;
+                }
+            }
+            
+            document.getElementById('statTotal').textContent = total;
+            document.getElementById('statWeek').textContent = weekTotal;
+            document.getElementById('statStreak').textContent = streak;
+        }
+        
+        // Navigation
+        function previousWeek() {
+            currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+            renderHabits();
+        }
+        
+        function nextWeek() {
+            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+            renderHabits();
+        }
+        
+        function currentWeek() {
+            currentWeekStart = getWeekStart(new Date());
+            renderHabits();
+        }
+        
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Handle Enter key
+        document.getElementById('habitInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addHabit();
+        });
+        
+        // Load data on startup
+        loadData();
+    </script>
+</body>
+</html>
