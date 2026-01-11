@@ -1,0 +1,17 @@
+{
+  "name": "Fleabox Rust Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb"
+      ]
+    }
+  },
+  "postCreateCommand": "rustc --version && cargo --version",
+  "remoteUser": "vscode"
+}
