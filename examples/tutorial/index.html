@@ -1,0 +1,63 @@
+<html>
+
+<body>
+  <div id="todoList"></div>
+  <form onsubmit="createTodo(event)">
+    <input id="new-todo" type="text" placeholder="What needs to be done?" />
+    <button type="submit">Add Todo</button>
+  </form>
+  <script lang="javascript">
+    let todoList = document.getElementById("todoList");
+    let newTodoInput = document.getElementById("new-todo");
+    let todos = [
+      { text: "Learn Fleabox", completed: false },
+      { text: "Build a todo app", completed: false }
+    ];
+
+    function render() {
+      todoList.innerHTML = todos.map((todo, index) => `
+          <div>
+            <input type="checkbox" onchange="toggleTodo(${index})" ${todo.completed ? 'checked' : ''}/>
+            ${todo.text}
+          </div>
+        `).join('');
+    }
+
+    function toggleTodo(index) {
+      todos[index].completed = !todos[index].completed;
+      saveTodos();
+      render();
+    }
+
+    async function loadTodos() {
+      const response = await fetch(`/api/tutorial/data/todos.json`);
+      if (response.ok) {
+        todos = await response.json();
+      }
+    }
+
+    async function saveTodos() {
+      await fetch(`/api/tutorial/data/todos.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(todos)
+      });
+    }
+
+    function createTodo(e) {
+      e.preventDefault();
+      todos.push({ text: newTodoInput.value, completed: false });
+      newTodoInput.value = '';
+      saveTodos();
+      render();
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadTodos();
+      render();
+    });
+  </script>
+
+</body>
+
+</html>
