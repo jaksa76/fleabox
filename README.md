@@ -22,6 +22,18 @@ fleabox
 
 This will serve the app at `http://localhost:3000/<app-id>`.
 
+### Configuration
+
+#### Custom Apps Directory
+
+You can override the default apps directory (`/srv/fleabox`) using the `--apps-dir` command line option:
+
+```bash
+fleabox --apps-dir /path/to/your/apps
+```
+
+This is useful for development or when you want to store your apps in a custom location.
+
 ### Data Storage
 
 Each app can read and write its own data in JSON format. The data is stored in the user's home directory under `~/.local/share/fleabox/<app-id>/data/`.
@@ -50,4 +62,10 @@ You can copy the examples folder into /srv/fleabox/ to try out the sample apps. 
 
 ```bash
 cargo run -- --dev
+```
+
+Or you can use a custom directory:
+
+```bash
+cargo run -- --dev --apps-dir ./examples
 ```
