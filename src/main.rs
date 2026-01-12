@@ -790,6 +790,21 @@ async fn serve_app_index(
     }
 }
 
+// Parse --apps-dir argument from command line with validation
+fn parse_apps_dir_arg(args: &[String]) -> String {
+    match args.iter().position(|arg| arg == "--apps-dir") {
+        Some(pos) => {
+            match args.get(pos + 1) {
+                Some(value) if !value.starts_with("--") => value.to_string(),
+                _ => {
+                    panic!("Error: --apps-dir requires a directory path argument");
+                }
+            }
+        }
+        None => "/srv/fleabox".to_string(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
@@ -797,11 +812,7 @@ async fn main() {
     let _dev_mode = args.contains(&"--dev".to_string());
 
     // Parse --apps-dir argument
-    let apps_dir = args.iter()
-        .position(|arg| arg == "--apps-dir")
-        .and_then(|pos| args.get(pos + 1))
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "/srv/fleabox".to_string());
+    let apps_dir = parse_apps_dir_arg(&args);
 
     // Create shared application state
     let state = AppState {
@@ -936,13 +947,9 @@ mod tests {
 
     #[test]
     fn test_parse_apps_dir_argument() {
-        // Test default apps_dir
+        // Test default apps_dir (no flag provided)
         let args = vec!["fleabox".to_string()];
-        let apps_dir = args.iter()
-            .position(|arg| arg == "--apps-dir")
-            .and_then(|pos| args.get(pos + 1))
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "/srv/fleabox".to_string());
+        let apps_dir = parse_apps_dir_arg(&args);
         assert_eq!(apps_dir, "/srv/fleabox");
 
         // Test custom apps_dir
@@ -951,11 +958,7 @@ mod tests {
             "--apps-dir".to_string(),
             "/custom/path".to_string(),
         ];
-        let apps_dir = args.iter()
-            .position(|arg| arg == "--apps-dir")
-            .and_then(|pos| args.get(pos + 1))
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "/srv/fleabox".to_string());
+        let apps_dir = parse_apps_dir_arg(&args);
         assert_eq!(apps_dir, "/custom/path");
 
         // Test with --apps-dir in the middle of other arguments
@@ -965,11 +968,27 @@ mod tests {
             "--apps-dir".to_string(),
             "/another/path".to_string(),
         ];
-        let apps_dir = args.iter()
-            .position(|arg| arg == "--apps-dir")
-            .and_then(|pos| args.get(pos + 1))
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "/srv/fleabox".to_string());
+        let apps_dir = parse_apps_dir_arg(&args);
         assert_eq!(apps_dir, "/another/path");
+    }
+
+    #[test]
+    #[should_panic(expected = "Error: --apps-dir requires a directory path argument")]
+    fn test_parse_apps_dir_missing_value() {
+        // Test that --apps-dir without a value panics
+        let args = vec!["fleabox".to_string(), "--apps-dir".to_string()];
+        let _ = parse_apps_dir_arg(&args);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error: --apps-dir requires a directory path argument")]
+    fn test_parse_apps_dir_followed_by_flag() {
+        // Test that --apps-dir followed by another flag (not a value) panics
+        let args = vec![
+            "fleabox".to_string(),
+            "--apps-dir".to_string(),
+            "--dev".to_string(),
+        ];
+        let _ = parse_apps_dir_arg(&args);
     }
 }
