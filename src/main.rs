@@ -1,14 +1,16 @@
 use axum::{
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
-    response::{Html, IntoResponse, Response},
-    routing::{delete, get, put},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use rsa::{RsaPrivateKey, pkcs8::EncodePublicKey, Oaep};
+use sha2::Sha256;
 use std::{
     collections::HashMap,
     env,
@@ -51,6 +53,7 @@ impl TokenInfo {
 struct AppState {
     token_store: TokenStore,
     apps_dir: String,
+    rsa_private_key: Arc<RsaPrivateKey>,
 }
 
 // Error response structure
@@ -93,6 +96,19 @@ struct DirEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u64>,
     mtime: i64,
+}
+
+// Login request structure
+#[derive(Deserialize)]
+struct LoginRequest {
+    username: String,
+    encrypted_password: String, // base64-encoded RSA-encrypted password
+}
+
+// Query params for login redirect
+#[derive(Deserialize)]
+struct LoginQuery {
+    next: Option<String>,
 }
 
 // User info extracted from getpwnam
@@ -271,6 +287,325 @@ fn get_current_user() -> Option<String> {
         let username = CStr::from_ptr(pwd.pw_name);
         username.to_str().ok().map(|s| s.to_string())
     }
+}
+
+// Authenticate user with PAM
+fn authenticate_with_pam(username: &str, password: &str) -> Result<(), String> {
+    let mut auth = pam::Authenticator::with_password("login")
+        .map_err(|e| format!("PAM initialization failed: {}", e))?;
+    
+    auth.get_handler().set_credentials(username, password);
+    
+    auth.authenticate()
+        .map_err(|e| format!("Authentication failed: {}", e))?;
+    
+    auth.open_session()
+        .map_err(|e| format!("Session open failed: {}", e))?;
+    
+    Ok(())
+}
+
+// Check if user is authenticated (has valid token cookie)
+fn is_authenticated(jar: &CookieJar, state: &AppState) -> bool {
+    if let Some(token_cookie) = jar.get("fleabox_token") {
+        let token = token_cookie.value();
+        let store = state.token_store.read().unwrap();
+        if let Some(token_info) = store.get(token) {
+            return !token_info.is_expired();
+        }
+    }
+    false
+}
+
+// Middleware to check authentication for public pages and redirect to login if needed
+async fn public_page_auth_middleware(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    req: Request,
+    next: Next,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state) {
+        let uri = req.uri();
+        let next_url = urlencoding::encode(uri.path());
+        return Err(Redirect::to(&format!("/login?next={}", next_url)));
+    }
+    Ok(next.run(req).await)
+}
+
+// GET /login - Serve login page
+async fn login_page(
+    State(state): State<AppState>,
+    Query(query): Query<LoginQuery>,
+) -> Html<String> {
+    // Export public key as SPKI PEM format
+    let public_key_pem = state
+        .rsa_private_key
+        .to_public_key()
+        .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
+        .unwrap_or_else(|_| "ERROR".to_string());
+    
+    let next_url = query.next.unwrap_or_else(|| "/".to_string());
+    
+    let html = format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Fleabox</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        .container {{
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+        }}
+        h1 {{
+            font-size: 2rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }}
+        .subtitle {{
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }}
+        .form-group {{
+            margin-bottom: 20px;
+        }}
+        label {{
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }}
+        input {{
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }}
+        input:focus {{
+            outline: none;
+            border-color: #667eea;
+        }}
+        button {{
+            width: 100%;
+            padding: 14px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }}
+        button:hover {{
+            background: #5568d3;
+        }}
+        button:disabled {{
+            background: #ccc;
+            cursor: not-allowed;
+        }}
+        .error {{
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }}
+        .lock-icon {{
+            text-align: center;
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="lock-icon">🔒</div>
+        <h1>Login to Fleabox</h1>
+        <p class="subtitle">Enter your system credentials</p>
+        <div id="error" class="error" style="display: none;"></div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+            </div>
+            <button type="submit" id="submitBtn">Login</button>
+        </form>
+    </div>
+    <script>
+        const PUBLIC_KEY_PEM = `{public_key_pem}`;
+        const NEXT_URL = {next_json};
+        
+        async function importPublicKey(pem) {{
+            const pemContents = pem
+                .replace(/-----BEGIN PUBLIC KEY-----/, '')
+                .replace(/-----END PUBLIC KEY-----/, '')
+                .replace(/\s/g, '');
+            const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+            
+            return await crypto.subtle.importKey(
+                'spki',
+                binaryDer,
+                {{
+                    name: 'RSA-OAEP',
+                    hash: 'SHA-256'
+                }},
+                false,
+                ['encrypt']
+            );
+        }}
+        
+        async function encryptPassword(password, publicKey) {{
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            
+            const encrypted = await crypto.subtle.encrypt(
+                {{
+                    name: 'RSA-OAEP'
+                }},
+                publicKey,
+                data
+            );
+            
+            return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+        }}
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {{
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const errorDiv = document.getElementById('error');
+            
+            errorDiv.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+            
+            try {{
+                const publicKey = await importPublicKey(PUBLIC_KEY_PEM);
+                const encryptedPassword = await encryptPassword(password, publicKey);
+                
+                const response = await fetch('/login', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{
+                        username,
+                        encrypted_password: encryptedPassword
+                    }})
+                }});
+                
+                if (response.ok) {{
+                    window.location.href = NEXT_URL;
+                }} else {{
+                    const data = await response.json();
+                    errorDiv.textContent = data.message || 'Login failed';
+                    errorDiv.style.display = 'block';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Login';
+                }}
+            }} catch (error) {{
+                errorDiv.textContent = 'An error occurred during login';
+                errorDiv.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }}
+        }});
+    </script>
+</body>
+</html>"#, 
+        public_key_pem = public_key_pem,
+        next_json = serde_json::to_string(&next_url).unwrap()
+    );
+    
+    Html(html)
+}
+
+// POST /login - Handle login
+async fn login_handler(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(login_req): Json<LoginRequest>,
+) -> Result<(CookieJar, StatusCode), ErrorResponse> {
+    // Decrypt the password using the private key
+    use base64::{Engine as _, engine::general_purpose};
+    let encrypted_bytes = general_purpose::STANDARD.decode(&login_req.encrypted_password)
+        .map_err(|_| ErrorResponse::new("bad_request", Some("Invalid base64 encoding".to_string())))?;
+    
+    let padding = Oaep::new::<Sha256>();
+    let decrypted_bytes = state
+        .rsa_private_key
+        .decrypt(padding, &encrypted_bytes)
+        .map_err(|_| ErrorResponse::new("bad_request", Some("Decryption failed".to_string())))?;
+    
+    let password = String::from_utf8(decrypted_bytes)
+        .map_err(|_| ErrorResponse::new("bad_request", Some("Invalid UTF-8 in password".to_string())))?;
+    
+    // Authenticate with PAM
+    authenticate_with_pam(&login_req.username, &password)
+        .map_err(|e| ErrorResponse::new("unauthorized", Some(format!("Authentication failed: {}", e))))?;
+    
+    // Verify user exists on the system
+    get_user_home(&login_req.username)
+        .ok_or_else(|| ErrorResponse::new("unauthorized", Some("User not found".to_string())))?;
+    
+    // Create session token (valid for 8 hours, no app restriction for root token)
+    let token = Uuid::new_v4().to_string();
+    let token_info = TokenInfo {
+        user: login_req.username.clone(),
+        app: "*".to_string(), // Wildcard for root authentication
+        expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
+    };
+    
+    // Store token
+    {
+        let mut store = state.token_store.write().unwrap();
+        store.insert(token.clone(), token_info);
+    }
+    
+    // Set cookie
+    let cookie = Cookie::build(("fleabox_token", token))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .max_age(time::Duration::hours(8));
+    
+    let jar = jar.add(cookie);
+    
+    Ok((jar, StatusCode::OK))
 }
 
 // Middleware to validate token from cookie and ensure it matches the app being accessed
@@ -835,10 +1170,19 @@ async fn main() {
         }
     };
 
+    // Generate RSA keypair for password encryption
+    println!("Generating RSA keypair...");
+    let mut rng = rand::thread_rng();
+    let bits = 2048;
+    let rsa_private_key = RsaPrivateKey::new(&mut rng, bits)
+        .expect("Failed to generate RSA key");
+    println!("RSA keypair generated successfully");
+
     // Create shared application state
     let state = AppState {
         token_store: Arc::new(RwLock::new(HashMap::new())),
         apps_dir,
+        rsa_private_key: Arc::new(rsa_private_key),
     };
 
     // API routes with token-based authentication
@@ -849,13 +1193,21 @@ async fn main() {
         .layer(middleware::from_fn_with_state(state.clone(), token_auth_middleware))
         .with_state(state.clone());
 
-    // Main app with both API and static routes
-    let app = Router::new()
-        .merge(api_routes)
+    // Public pages with authentication middleware (redirect to login if not authenticated)
+    let protected_routes = Router::new()
         .route("/", get(list_directories))
         .route("/:app/", get(serve_app_index))
         .route("/:app", get(serve_app_index))
         .route("/:app/*file", get(serve_app_file))
+        .layer(middleware::from_fn_with_state(state.clone(), public_page_auth_middleware))
+        .with_state(state.clone());
+
+    // Main app with all routes
+    let app = Router::new()
+        .merge(api_routes)
+        .merge(protected_routes)
+        .route("/login", get(login_page))
+        .route("/login", post(login_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
@@ -863,7 +1215,8 @@ async fn main() {
         .unwrap();
     
     println!("Server running on http://0.0.0.0:3000");
-    println!("Token-based authentication enabled");
+    println!("OS-based authentication enabled (PAM)");
+    println!("Password encryption: RSA-2048 with OAEP");
     axum::serve(listener, app).await.unwrap();
 }
 
