@@ -50,6 +50,7 @@ impl TokenInfo {
 #[derive(Clone)]
 struct AppState {
     token_store: TokenStore,
+    apps_dir: String,
 }
 
 // Error response structure
@@ -574,8 +575,8 @@ async fn api_delete_data(
     Ok((StatusCode::OK, "").into_response())
 }
 
-async fn list_directories() -> Html<String> {
-    let path = "/srv/fleabox";
+async fn list_directories(State(state): State<AppState>) -> Html<String> {
+    let path = &state.apps_dir;
     let mut directories = Vec::new();
 
     if let Ok(entries) = fs::read_dir(path) {
@@ -704,12 +705,13 @@ async fn list_directories() -> Html<String> {
 }
 
 async fn serve_app_file(
+    State(state): State<AppState>,
     Path((app, file)): Path<(String, String)>,
     _jar: CookieJar,
 ) -> Response {
     // For now, allow access to static files without token validation
     // since they're just HTML/CSS/JS that gets loaded initially
-    let file_path = format!("/srv/fleabox/{}/{}", app, file);
+    let file_path = format!("{}/{}/{}", state.apps_dir, app, file);
     
     match fs::read_to_string(&file_path) {
         Ok(content) => {
@@ -742,7 +744,7 @@ async fn serve_app_index(
     Path(app): Path<String>,
     req: Request,
 ) -> Response {
-    let index_path = format!("/srv/fleabox/{}/index.html", app);
+    let index_path = format!("{}/{}/index.html", state.apps_dir, app);
     
     match fs::read_to_string(&index_path) {
         Ok(content) => {
@@ -788,15 +790,46 @@ async fn serve_app_index(
     }
 }
 
+// Parse --apps-dir argument from command line with validation
+fn parse_apps_dir_arg(args: &[String]) -> Result<String, String> {
+    match args.iter().position(|arg| arg == "--apps-dir") {
+        Some(pos) => {
+            match args.get(pos + 1) {
+                Some(value) if !value.starts_with("--") && !value.is_empty() => {
+                    Ok(value.to_string())
+                }
+                Some(value) if value.starts_with("--") => {
+                    Err(format!("Error: --apps-dir requires a directory path argument, got '{}' instead", value))
+                }
+                _ => {
+                    Err("Error: --apps-dir requires a directory path argument".to_string())
+                }
+            }
+        }
+        None => Ok("/srv/fleabox".to_string()),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     let _dev_mode = args.contains(&"--dev".to_string());
 
+    // Parse --apps-dir argument
+    let apps_dir = match parse_apps_dir_arg(&args) {
+        Ok(dir) => dir,
+        Err(msg) => {
+            eprintln!("{}", msg);
+            eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>]");
+            std::process::exit(1);
+        }
+    };
+
     // Create shared application state
     let state = AppState {
         token_store: Arc::new(RwLock::new(HashMap::new())),
+        apps_dir,
     };
 
     // API routes with token-based authentication
@@ -922,5 +955,54 @@ mod tests {
         // Test with a user that should not exist
         let result = get_user_home("nonexistent_user_12345");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_apps_dir_argument() {
+        // Test default apps_dir (no flag provided)
+        let args = vec!["fleabox".to_string()];
+        let apps_dir = parse_apps_dir_arg(&args).unwrap();
+        assert_eq!(apps_dir, "/srv/fleabox");
+
+        // Test custom apps_dir
+        let args = vec![
+            "fleabox".to_string(),
+            "--apps-dir".to_string(),
+            "/custom/path".to_string(),
+        ];
+        let apps_dir = parse_apps_dir_arg(&args).unwrap();
+        assert_eq!(apps_dir, "/custom/path");
+
+        // Test with --apps-dir in the middle of other arguments
+        let args = vec![
+            "fleabox".to_string(),
+            "--dev".to_string(),
+            "--apps-dir".to_string(),
+            "/another/path".to_string(),
+        ];
+        let apps_dir = parse_apps_dir_arg(&args).unwrap();
+        assert_eq!(apps_dir, "/another/path");
+    }
+
+    #[test]
+    fn test_parse_apps_dir_missing_value() {
+        // Test that --apps-dir without a value returns an error
+        let args = vec!["fleabox".to_string(), "--apps-dir".to_string()];
+        let result = parse_apps_dir_arg(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires a directory path argument"));
+    }
+
+    #[test]
+    fn test_parse_apps_dir_followed_by_flag() {
+        // Test that --apps-dir followed by another flag (not a value) returns an error
+        let args = vec![
+            "fleabox".to_string(),
+            "--apps-dir".to_string(),
+            "--dev".to_string(),
+        ];
+        let result = parse_apps_dir_arg(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires a directory path argument"));
     }
 }
