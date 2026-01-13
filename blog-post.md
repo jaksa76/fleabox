@@ -8,11 +8,23 @@ You only need a backend that can serve static files and store per-user data. Fle
 
 We’re going to create one file: `/srv/fleabox/todo/index.html`. Fleabox will serve it at `/todo`, and we’ll persist data via `GET`/`PUT` to `/api/todo/data/todos.json`.
 
-### Create the App Directory
+### Doanload and install fleabox
 
 ```bash
-mkdir -p /srv/fleabox/tutorial
+sudo curl -L -o /usr/local/bin/fleabox https://github.com/jaksa76/fleabox/releases/download/v1.0/fleabox
+sudo chmod +x /usr/local/bin/fleabox
 ```
+
+If you don't have root access, you can also run fleabox from wherever you like.
+
+### Create the App Directory
+FFleabox serves static files from `/srv/fleabox/`. Let's create a directory for our app:
+
+```bash
+sudo mkdir -p /srv/fleabox/tutorial
+```
+
+Again, if you don't have root access, you can create the directory wherever you like, just remember to pass the `--apps-dir <your-app-directory>` argument when running fleabox.
 
 ### A Bare HTML Page
 
@@ -133,25 +145,25 @@ Finally let's replace the initial render call from Step 3 with loading existing 
 
 ### Run Fleabox
 
-If you’re developing locally from the repo, you can run:
+For now we will run fleabox in dev mode so that we can skip authentication:
 
 ```bash
-cargo run -- --dev
+fleabox --dev # optionally add --apps-dir <your-app-directory> if you created the app directory somewhere else
 ```
 
 Now you can open http://localhost:3000/
 
 You should see a list of all the installed apps. Click on "tutorial" to open your TODO app. Since we are running in dev mode, fleabox will skip authentication and use the user that is currently logged in on your machine.
 
+### Exposing fleabox to the Internet
+
+If you want to expose fleabox to the internet, you need to set up a reverse proxy with authentication and TLS termination. This is crucial for security, especially if you plan to access your apps remotely. Popular choices for reverse proxies include Nginx, Caddy and Traefik.
+
 ## What's Next?
 
 In a similar way you can develop complex apps with your favorite frontend framework (React, Svelte, Vue, etc) and just use fleabox as a simple backend to serve the app and store user data.
 
-Fleabox serves static files from `/srv/fleabox/<app-name>/` at the URL path `/<app-name>/`. User data is stored in `/var/lib/fleabox/<username>/<app-name>/data/`.
-
-Since fleabox is designed for self-hosted use, it assumes that the user accessing the machine is trusted. Therefore, it relies on the operating system's user management.
-
-If you want to expose fleabox to the internet, you need to set up a reverse proxy with TLS termination. This is crucial for security, especially if you plan to access your apps remotely. Popular choices for reverse proxies include Nginx, Caddy and Traefik.
+Fleabox serves static files from `/srv/fleabox/<app-name>/` at the URL path `/<app-name>/`. User data is stored in `/var/lib/fleabox/<username>/<app-name>/data/`. Since fleabox is designed for self-hosted use, it assumes that the user accessing the machine is trusted.
 
 Fleabox is ideal for simple self-hosted applications where each user manages their own data. However, it may not be suitable for applications that require:
 
