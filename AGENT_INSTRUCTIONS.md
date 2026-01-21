@@ -16,11 +16,6 @@ Fleabox is a tiny self-hosted application hub. It serves static web apps and sto
 Read a JSON file:
 ```javascript
 const response = await fetch(`/api/<app-id>/data/todos.json`);
-if (response.ok) {
-    const todos = await response.json();
-} else if (response.status === 404) {
-    // File doesn't exist yet
-}
 ```
 
 List directory contents:
@@ -59,71 +54,6 @@ await fetch(`/api/<app-id>/data/archive?recursive=true`, {
 });
 ```
 
-## Example App
-
-Create `/srv/fleabox/todo/index.html`:
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Todo - Fleabox</title>
-</head>
-<body>
-    <input id="newTodo" type="text" />
-    <button onclick="addTodo()">Add</button>
-    <div id="list"></div>
-    
-    <script>
-        const APP_ID = 'todo';
-        let todos = [];
-        
-        async function loadTodos() {
-            const response = await fetch(`/api/${APP_ID}/data/todos.json`);
-            if (response.ok) {
-                todos = await response.json();
-            }
-            render();
-        }
-        
-        async function saveTodos() {
-            await fetch(`/api/${APP_ID}/data/todos.json`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(todos)
-            });
-        }
-        
-        async function addTodo() {
-            const input = document.getElementById('newTodo');
-            todos.push({ text: input.value, done: false });
-            input.value = '';
-            await saveTodos();
-            render();
-        }
-        
-        function render() {
-            const list = document.getElementById('list');
-            list.innerHTML = todos.map((todo, i) => `
-                <div>
-                    <input type="checkbox" ${todo.done ? 'checked' : ''} 
-                           onchange="toggleTodo(${i})">
-                    ${todo.text}
-                </div>
-            `).join('');
-        }
-        
-        async function toggleTodo(index) {
-            todos[index].done = !todos[index].done;
-            await saveTodos();
-            render();
-        }
-        
-        loadTodos();
-    </script>
-</body>
-</html>
-```
 
 ## Running Fleabox
 
