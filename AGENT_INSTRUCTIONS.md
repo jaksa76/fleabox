@@ -571,7 +571,7 @@ const entries = await response.json();
 /srv/fleabox/<app-id>/
 └── index.html          (Required: Your app's entry point)
 
-~/.local/share/fleabox/<username>/<app-id>/data/
+~/.local/share/fleabox/<app-id>/data/
 ├── file1.json          (Your app's data files)
 ├── file2.json
 └── subdirectory/
