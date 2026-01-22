@@ -816,6 +816,17 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let _dev_mode = args.contains(&"--dev".to_string());
 
+    // Print concise instructions when called with --help
+    if args.contains(&"--help".to_string()) {
+        println!("fleabox - self-hosted app server");
+        println!("Usage: fleabox [--dev] [--apps-dir <directory>]");
+        println!("");
+        println!("Options:");
+        println!("  --dev            Run in development mode (uses current user)");
+        println!("  --apps-dir DIR   Path to apps directory (default: /srv/fleabox)");
+        std::process::exit(0);
+    }
+
     // Parse --apps-dir argument
     let apps_dir = match parse_apps_dir_arg(&args) {
         Ok(dir) => dir,
