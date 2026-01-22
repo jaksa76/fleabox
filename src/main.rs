@@ -601,104 +601,85 @@ async fn list_directories(State(state): State<AppState>) -> Html<String> {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fleabox</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
+        * {{box-sizing: border-box; margin: 0; padding: 0;}}
+        html,body {{height: 100%;}}
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+            background: radial-gradient(1200px 600px at 10% 10%, rgba(156,163,175,0.04), transparent),
+                        linear-gradient(180deg, #090912 0%, #0f1724 100%);
+            color: #e6eef8c4;
+            -webkit-font-smoothing:antialiased;
+            -moz-osx-font-smoothing:grayscale;
             min-height: 100vh;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 48px 24px 88px;
         }}
-        .container {{
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-        }}
-        h1 {{
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 10px;
+        .apps {{
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            align-items: center;
             text-align: center;
         }}
-        .subtitle {{
-            text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 0.95rem;
-        }}
-        .apps-list {{
-            list-style: none;
-        }}
-        .app-item {{
-            margin-bottom: 12px;
-        }}
-        .app-link {{
-            display: block;
-            padding: 16px 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
+        .apps a {{
+            color: inherit;
             text-decoration: none;
-            color: #333;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            border: 2px solid transparent;
+            font-size: 3.2rem;
+            font-weight: 100;
+            letter-spacing: -0.02em;
+            padding: 8px 16px;
+            transition: transform 220ms cubic-bezier(.2,.9,.2,1), color 180ms ease, text-shadow 220ms ease;
+            will-change: transform;
         }}
-        .app-link:hover {{
-            background: #667eea;
-            color: white;
-            transform: translateX(5px);
-            border-color: #667eea;
+        .apps a:hover {{
+            transform: scale(1.08);
+            color: #ffffff;
+            text-shadow: 0 6px 24px rgba(125,211,252,0.06);
         }}
-        .empty-state {{
-            text-align: center;
-            padding: 40px 20px;
-            color: #999;
+        .empty {{
+            color: #9aa4b2;
+            font-size: 1rem;
+            letter-spacing: 0.02em;
         }}
-        .empty-state svg {{
-            width: 64px;
-            height: 64px;
-            margin-bottom: 16px;
-            opacity: 0.5;
+        .footer {{
+            position: fixed;
+            left: 0; right: 0;
+            bottom: 12px;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }}
+        .footer .meta {{
+            color: #728096;
+            font-size: 0.82rem;
+            background: rgba(255,255,255,0.02);
+            padding: 6px 10px;
+            border-radius: 999px;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
         }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🦎 Fleabox</h1>
-        <p class="subtitle">Your self-hosted apps</p>
+    <main class="apps">
         {}
-    </div>
+    </main>
+    <div class="footer"><div class="meta">fleabox {}</div></div>
 </body>
 </html>"#,
         if directories.is_empty() {
-            r#"<div class="empty-state">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-            </svg>
-            <p>No apps found</p>
-        </div>"#.to_string()
+            r#"<div class="empty">No apps found</div>"#.to_string()
         } else {
-            format!(
-                r#"<ul class="apps-list">
-            {}
-        </ul>"#,
-                directories
-                    .iter()
-                    .map(|dir| format!(r#"<li class="app-item"><a href="/{}" class="app-link">{}</a></li>"#, dir, dir))
-                    .collect::<Vec<_>>()
-                    .join("\n            ")
-            )
-        }
+            directories
+                .iter()
+                .map(|dir| format!(r#"<a href="/{}">{}</a>"#, dir, dir))
+                .collect::<Vec<_>>()
+                .join("\n        ")
+        },
+        env!("CARGO_PKG_VERSION")
     );
 
     Html(html)
