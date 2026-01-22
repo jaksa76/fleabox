@@ -1,0 +1,15 @@
+{
+  "name": "fleabox-e2e-tests",
+  "version": "1.0.0",
+  "description": "End-to-end tests for Fleabox",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.41.0"
+  }
+}

@@ -2,7 +2,8 @@
   "name": "Fleabox Rust Dev Container",
   "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/schlich/devcontainer-features/playwright:0": {}
   },
   "customizations": {
     "vscode": {
