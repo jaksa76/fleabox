@@ -725,6 +725,51 @@ async fn serve_app_index(
     Path(app): Path<String>,
     req: Request,
 ) -> Response {
+    // Check if this is a request for a static file (has an extension)
+    // This handles relative paths like /styles.css from /bookmarks
+    if app.contains('.') {
+        // Try to extract app name from referer
+        let referer = req
+            .headers()
+            .get(header::REFERER)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        
+        let app_name = referer
+            .trim_end_matches('/')
+            .split('/')
+            .last()
+            .unwrap_or("");
+        
+        if !app_name.is_empty() {
+            let file_path = format!("{}/{}/{}", state.apps_dir, app_name, app);
+            
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                let content_type = if app.ends_with(".html") {
+                    "text/html"
+                } else if app.ends_with(".css") {
+                    "text/css"
+                } else if app.ends_with(".js") {
+                    "application/javascript"
+                } else if app.ends_with(".json") {
+                    "application/json"
+                } else {
+                    "text/plain"
+                };
+                
+                return (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, content_type)],
+                    content,
+                )
+                    .into_response();
+            }
+        }
+        
+        return (StatusCode::NOT_FOUND, "File not found").into_response();
+    }
+    
+    // Otherwise, serve the app's index.html
     let index_path = format!("{}/{}/index.html", state.apps_dir, app);
     
     match fs::read_to_string(&index_path) {
