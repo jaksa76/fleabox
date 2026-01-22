@@ -42,4 +42,18 @@ test.describe('Fleabox Homepage', () => {
     // Verify the bookmarks app loaded
     await expect(page.locator('body')).toBeVisible();
   });
+
+  test('should have trailing slashes in app links', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    // Check that all app links have trailing slashes
+    const expectedApps = ['bookmarks', 'habits', 'journal', 'notes', 'todo', 'tutorial'];
+    
+    for (const appName of expectedApps) {
+      const link = page.locator(`a:has-text("${appName}")`).first();
+      const href = await link.getAttribute('href');
+      expect(href).toBe(`/${appName}/`);
+    }
+  });
 });

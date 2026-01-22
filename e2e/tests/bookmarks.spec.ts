@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Bookmarks App', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the bookmarks app before each test
-    await page.goto('/bookmarks');
+    await page.goto('/bookmarks/');
     await page.waitForLoadState('networkidle');
     
     // Clear all existing bookmarks to ensure clean state

@@ -675,7 +675,7 @@ async fn list_directories(State(state): State<AppState>) -> Html<String> {
         } else {
             directories
                 .iter()
-                .map(|dir| format!(r#"<a href="/{}">{}</a>"#, dir, dir))
+                .map(|dir| format!(r#"<a href="/{}/">{}</a>"#, dir, dir))
                 .collect::<Vec<_>>()
                 .join("\n        ")
         },
@@ -725,52 +725,24 @@ async fn serve_app_index(
     Path(app): Path<String>,
     req: Request,
 ) -> Response {
-    // Check if this is a request for a static file (has an extension)
-    // This handles relative paths like /styles.css from /bookmarks
-    if app.contains('.') {
-        // Try to extract app name from referer
-        let referer = req
-            .headers()
-            .get(header::REFERER)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
+    // Handle requests ending with '/' by trying index.html or index.htm
+    let index_path = if app.ends_with('/') {
+        let app_name = app.trim_end_matches('/');
+        let html_path = format!("{}/{}/index.html", state.apps_dir, app_name);
+        let htm_path = format!("{}/{}/index.htm", state.apps_dir, app_name);
         
-        let app_name = referer
-            .trim_end_matches('/')
-            .split('/')
-            .last()
-            .unwrap_or("");
-        
-        if !app_name.is_empty() {
-            let file_path = format!("{}/{}/{}", state.apps_dir, app_name, app);
-            
-            if let Ok(content) = fs::read_to_string(&file_path) {
-                let content_type = if app.ends_with(".html") {
-                    "text/html"
-                } else if app.ends_with(".css") {
-                    "text/css"
-                } else if app.ends_with(".js") {
-                    "application/javascript"
-                } else if app.ends_with(".json") {
-                    "application/json"
-                } else {
-                    "text/plain"
-                };
-                
-                return (
-                    StatusCode::OK,
-                    [(axum::http::header::CONTENT_TYPE, content_type)],
-                    content,
-                )
-                    .into_response();
-            }
+        if StdPath::new(&html_path).exists() {
+            html_path
+        } else if StdPath::new(&htm_path).exists() {
+            htm_path
+        } else {
+            html_path // Try html by default for error message
         }
-        
-        return (StatusCode::NOT_FOUND, "File not found").into_response();
-    }
+    } else {
+        format!("{}/{}/index.html", state.apps_dir, app)
+    };
     
-    // Otherwise, serve the app's index.html
-    let index_path = format!("{}/{}/index.html", state.apps_dir, app);
+    let app_name = app.trim_end_matches('/');
     
     match fs::read_to_string(&index_path) {
         Ok(content) => {
@@ -785,7 +757,7 @@ async fn serve_app_index(
             let token = Uuid::new_v4().to_string();
             let token_info = TokenInfo {
                 user: username,
-                app: app.clone(),
+                app: app_name.to_string(),
                 expiry: SystemTime::now() + Duration::from_secs(3600 * 24), // 24 hour expiry
             };
             
@@ -881,6 +853,7 @@ async fn main() {
     let app = Router::new()
         .merge(api_routes)
         .route("/", get(list_directories))
+        .route("/:app/", get(serve_app_index))
         .route("/:app", get(serve_app_index))
         .route("/:app/*file", get(serve_app_file))
         .with_state(state);
