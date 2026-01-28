@@ -61,6 +61,7 @@ type TokenStore = Arc<RwLock<HashMap<String, TokenInfo>>>;
 // Information stored for each token
 #[derive(Clone, Debug)]
 struct TokenInfo {
+    #[allow(dead_code)]
     user: String,
     app: String,
     expiry: SystemTime,
@@ -973,8 +974,8 @@ async fn token_auth_middleware(
         .and_then(|s| s.split('/').next())
         .ok_or_else(|| ErrorResponse::new("bad_request", Some("Invalid API path".to_string())))?;
     
-    // Verify token's app matches the requested app
-    if token_info.app != app_id {
+    // Verify token's app matches the requested app (or is wildcard)
+    if token_info.app != "*" && token_info.app != app_id {
         return Err(ErrorResponse::new(
             "unauthorized",
             Some(format!("Token not valid for app '{}'", app_id)),
@@ -1370,9 +1371,7 @@ async fn serve_app_file(
 
 async fn serve_app_index(
     State(state): State<AppState>,
-    jar: CookieJar,
     Path(app): Path<String>,
-    req: Request,
 ) -> Response {
     // Handle requests ending with '/' by trying index.html or index.htm
     let index_path = if app.ends_with('/') {
@@ -1390,8 +1389,6 @@ async fn serve_app_index(
     } else {
         format!("{}/{}/index.html", state.apps_dir, app)
     };
-    
-    let app_name = app.trim_end_matches('/');
     
     match fs::read_to_string(&index_path) {
         Ok(content) => {

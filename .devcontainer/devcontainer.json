@@ -13,6 +13,6 @@
       ]
     }
   },
-  "postCreateCommand": "rustc --version && cargo --version",
+  "postCreateCommand": "rustc --version && cargo --version && sudo apt-get update && sudo apt-get install -y libpam0g-dev && sudo useradd -m -s /bin/bash alice && echo 'alice:alice123' | sudo chpasswd && sudo useradd -m -s /bin/bash bob && echo 'bob:bob123' | sudo chpasswd",
   "remoteUser": "vscode"
 }

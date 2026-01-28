@@ -16,7 +16,7 @@ import * as os from 'os';
  * - API access control
  */
 
-const FLEABOX_BIN = path.resolve(__dirname, '../../target/debug/fleabox');
+const PROJECT_DIR = path.resolve(__dirname, '../..');
 const EXAMPLES_DIR = path.resolve(__dirname, '../../examples');
 const TEST_PORT = 3001; // Use separate port for auth tests
 const BASE_URL = `http://localhost:${TEST_PORT}`;
@@ -24,7 +24,8 @@ const BASE_URL = `http://localhost:${TEST_PORT}`;
 // Helper to start fleabox server
 async function startFleabox(args: string[]): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(FLEABOX_BIN, args, {
+    const proc = spawn('cargo', ['run', '--', ...args], {
+      cwd: PROJECT_DIR,
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
@@ -135,18 +136,6 @@ test.describe('Config-based Authentication', () => {
   const testDataDir = path.join(os.tmpdir(), `fleabox-test-data-${Date.now()}`);
 
   test.beforeAll(async () => {
-    // Build fleabox first
-    await new Promise((resolve, reject) => {
-      const build = spawn('cargo', ['build'], {
-        cwd: path.resolve(__dirname, '../..'),
-        stdio: 'inherit'
-      });
-      build.on('exit', (code) => {
-        if (code === 0) resolve(null);
-        else reject(new Error(`Build failed with code ${code}`));
-      });
-    });
-
     // Create test data directory
     fs.mkdirSync(testDataDir, { recursive: true });
 
@@ -238,7 +227,10 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="username"]', 'testuser');
     await page.fill('input[name="password"]', 'testpass123');
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\//);
+    
+    // Wait for redirect away from login page
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+    await page.waitForLoadState('networkidle');
 
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
@@ -273,7 +265,10 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="username"]', 'alice');
     await page.fill('input[name="password"]', 'alicepass');
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\//);
+    
+    // Wait for redirect away from login page
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+    await page.waitForLoadState('networkidle');
 
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
@@ -314,18 +309,6 @@ test.describe('Reverse Proxy Authentication (none)', () => {
   const expectedDataDir = path.join(userHome, '.local', 'share', 'fleabox');
 
   test.beforeAll(async () => {
-    // Build fleabox first
-    await new Promise((resolve, reject) => {
-      const build = spawn('cargo', ['build'], {
-        cwd: path.resolve(__dirname, '../..'),
-        stdio: 'inherit'
-      });
-      build.on('exit', (code) => {
-        if (code === 0) resolve(null);
-        else reject(new Error(`Build failed with code ${code}`));
-      });
-    });
-
     // Start server with no auth (reverse proxy mode)
     server = await startFleabox([
       '--apps-dir', EXAMPLES_DIR,
@@ -425,18 +408,6 @@ test.describe('Dev Mode', () => {
   const currentUser = process.env.USER || os.userInfo().username;
 
   test.beforeAll(async () => {
-    // Build fleabox first
-    await new Promise((resolve, reject) => {
-      const build = spawn('cargo', ['build'], {
-        cwd: path.resolve(__dirname, '../..'),
-        stdio: 'inherit'
-      });
-      build.on('exit', (code) => {
-        if (code === 0) resolve(null);
-        else reject(new Error(`Build failed with code ${code}`));
-      });
-    });
-
     // Start server in dev mode
     server = await startFleabox([
       '--dev',
@@ -501,14 +472,178 @@ test.describe('Dev Mode', () => {
   });
 });
 
-// Note: PAM authentication tests are skipped because they require:
-// 1. PAM to be compiled in (--features pam)
-// 2. Real system users with passwords
-// 3. Root or appropriate permissions to authenticate
-// These tests should be run manually in an appropriate environment.
-test.describe.skip('PAM Authentication', () => {
-  test('should authenticate with system credentials', async () => {
-    // This would require real system users and PAM setup
-    // Test manually with: cargo build --features pam && cargo run -- --auth=pam
+test.describe('PAM Authentication', () => {
+  let server: ChildProcess;
+  const baseURL = 'http://localhost:3002'; // Use separate port to avoid conflicts
+  const aliceDataDir = '/home/alice/.local/share/fleabox';
+  const bobDataDir = '/home/bob/.local/share/fleabox';
+
+  // Check if PAM test users exist
+  const pamUsersExist = () => {
+    try {
+      return fs.existsSync('/home/alice') && fs.existsSync('/home/bob');
+    } catch {
+      return false;
+    }
+  };
+
+  test.beforeAll(async () => {
+    // Skip PAM tests if test users don't exist
+    if (!pamUsersExist()) {
+      test.skip();
+      return;
+    }
+
+    // Start server with PAM auth
+    server = await startFleabox([
+      '--apps-dir', EXAMPLES_DIR,
+      '--auth=pam',
+      '--port', '3002'
+    ]);
+
+    await waitForServer(baseURL);
   });
+
+  test.afterAll(async () => {
+    if (server) {
+      await stopFleabox(server);
+    }
+  });
+
+  test('should redirect to login when not authenticated', async ({ page }) => {
+    await page.goto(`${baseURL}/todo/`);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
+  test('should show login page', async ({ page }) => {
+    await page.goto(`${baseURL}/login`);
+    await expect(page.locator('h1')).toContainText('Login');
+    await expect(page.locator('input[name="username"]')).toBeVisible();
+    await expect(page.locator('input[name="password"]')).toBeVisible();
+  });
+
+  test('should reject invalid credentials', async ({ page }) => {
+    await page.goto(`${baseURL}/login`);
+
+    // Fill in invalid credentials (non-existent user to avoid locking out real users)
+    await page.fill('input[name="username"]', 'nonexistentuser');
+    await page.fill('input[name="password"]', 'wrongpassword');
+    await page.click('button[type="submit"]');
+
+    // Should see error
+    await page.waitForSelector('.error', { state: 'visible', timeout: 5000 });
+  });
+
+  test('should login with alice credentials', async ({ page }) => {
+    await page.goto(`${baseURL}/login?next=/todo/`);
+
+    // Fill in alice's credentials
+    await page.fill('input[name="username"]', 'alice');
+    await page.fill('input[name="password"]', 'alice123');
+    await page.click('button[type="submit"]');
+
+    // Should redirect to todo app
+    await page.waitForURL(/\/todo/, { timeout: 10000 });
+    expect(page.url()).toContain('/todo');
+  });
+
+  test('should store alice data in her home directory', async ({ page }) => {
+    // This test runs after alice's login test, so session may still be active
+    // Navigate to todo app
+    await page.goto(`${baseURL}/todo/`);
+    await page.waitForLoadState('networkidle');
+
+    // Wait for todo app to be ready
+    await page.waitForSelector('#todoInput', { timeout: 10000 });
+
+    // Clear existing todos
+    await page.evaluate(() => {
+      return fetch('/api/todo/data/todos.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([])
+      });
+    });
+
+    // Add a todo item
+    await page.fill('#todoInput', 'Alice PAM test task');
+    await page.click('button:has-text("Add")');
+    await page.waitForTimeout(1000);
+
+    // Verify data file was created in alice's home directory
+    const dataFile = path.join(aliceDataDir, 'todo', 'data', 'todos.json');
+    expect(fs.existsSync(dataFile)).toBeTruthy();
+
+    const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    expect(data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'Alice PAM test task' })
+      ])
+    );
+  });
+
+  test('should login with bob credentials', async ({ page, context }) => {
+    // Clear cookies to start fresh
+    await context.clearCookies();
+
+    await page.goto(`${baseURL}/login?next=/todo/`);
+
+    // Fill in bob's credentials
+    await page.fill('input[name="username"]', 'bob');
+    await page.fill('input[name="password"]', 'bob123');
+    await page.click('button[type="submit"]');
+
+    // Should redirect to todo app
+    await page.waitForURL(/\/todo/, { timeout: 10000 });
+    expect(page.url()).toContain('/todo');
+  });
+
+  test('should isolate data between alice and bob', async ({ page }) => {
+    // This test runs after bob's login test, so session may still be active
+    // Navigate to todo app
+    await page.goto(`${baseURL}/todo/`);
+    await page.waitForLoadState('networkidle');
+
+    // Wait for todo app to be ready
+    await page.waitForSelector('#todoInput', { timeout: 10000 });
+
+    // Clear existing todos
+    await page.evaluate(() => {
+      return fetch('/api/todo/data/todos.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([])
+      });
+    });
+
+    // Add a todo item as bob
+    await page.fill('#todoInput', 'Bob PAM test task');
+    await page.click('button:has-text("Add")');
+    await page.waitForTimeout(1000);
+
+    // Verify data is in bob's directory
+    const bobDataFile = path.join(bobDataDir, 'todo', 'data', 'todos.json');
+    expect(fs.existsSync(bobDataFile)).toBeTruthy();
+
+    const bobData = JSON.parse(fs.readFileSync(bobDataFile, 'utf8'));
+    expect(bobData).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'Bob PAM test task' })
+      ])
+    );
+
+    // Verify alice's data is separate and doesn't contain bob's task
+    const aliceDataFile = path.join(aliceDataDir, 'todo', 'data', 'todos.json');
+    if (fs.existsSync(aliceDataFile)) {
+      const aliceData = JSON.parse(fs.readFileSync(aliceDataFile, 'utf8'));
+      expect(aliceData).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Bob PAM test task' })
+        ])
+      );
+    }
+  });
+
+
 });
