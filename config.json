@@ -1,0 +1,9 @@
+{
+  "users": [
+    {
+      "username": "testuser",
+      "password": "testpass",
+      "data_dir": "/workspaces/fleabox/examples"
+    }
+  ]
+}

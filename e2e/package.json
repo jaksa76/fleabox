@@ -5,8 +5,7 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:headed": "playwright test --headed",
-    "test:ui": "playwright test --ui",
+    "test:auth": "playwright test --config=playwright.auth.config.ts",
     "test:debug": "playwright test --debug"
   },
   "devDependencies": {

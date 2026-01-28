@@ -16,7 +16,7 @@ uuid = { version = "1.0", features = ["v4"] }
 axum-extra = { version = "0.9", features = ["cookie"] }
 rsa = "0.9"
 rand = "0.8"
-pam = "0.7"
+libloading = "0.8"
 base64 = "0.22"
 urlencoding = "2.1"
 sha2 = "0.10"

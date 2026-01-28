@@ -24,11 +24,35 @@ use tokio::{
     fs::{create_dir_all, remove_dir_all, remove_file, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
+use std::os::raw::{c_char, c_int, c_void};
+use libloading::{Library, Symbol};
 use uuid::Uuid;
 
 // Global counter for unique temp file names
 // Used to prevent race conditions when multiple requests write to the same file concurrently
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// Authentication type
+#[derive(Clone, Debug, PartialEq)]
+enum AuthType {
+    Pam,
+    Config,
+    None,
+}
+
+// User configuration for config-based authentication
+#[derive(Clone, Debug, Deserialize)]
+struct UserConfig {
+    username: String,
+    password: String,
+    data_dir: String,
+}
+
+// Configuration file structure
+#[derive(Clone, Debug, Deserialize)]
+struct Config {
+    users: Vec<UserConfig>,
+}
 
 // Token store for access control
 // Maps token -> TokenInfo
@@ -40,6 +64,7 @@ struct TokenInfo {
     user: String,
     app: String,
     expiry: SystemTime,
+    data_dir: PathBuf,
 }
 
 impl TokenInfo {
@@ -54,6 +79,9 @@ struct AppState {
     token_store: TokenStore,
     apps_dir: String,
     rsa_private_key: Arc<RsaPrivateKey>,
+    auth_type: AuthType,
+    config: Option<Arc<Config>>,
+    dev_mode: bool,
 }
 
 // Error response structure
@@ -290,18 +318,179 @@ fn get_current_user() -> Option<String> {
 }
 
 // Authenticate user with PAM
+// PAM constants and types for dynamic loading
+const PAM_SUCCESS: c_int = 0;
+const PAM_PROMPT_ECHO_OFF: c_int = 1;
+
+#[repr(C)]
+struct PamMessage {
+    msg_style: c_int,
+    msg: *const c_char,
+}
+
+#[repr(C)]
+struct PamResponse {
+    resp: *mut c_char,
+    resp_retcode: c_int,
+}
+
+#[repr(C)]
+struct PamConv {
+    conv: extern "C" fn(
+        num_msg: c_int,
+        msg: *const *const PamMessage,
+        resp: *mut *mut PamResponse,
+        appdata_ptr: *mut c_void,
+    ) -> c_int,
+    appdata_ptr: *mut c_void,
+}
+
+// Conversation handler that provides the password
+extern "C" fn conversation_handler(
+    num_msg: c_int,
+    msg: *const *const PamMessage,
+    resp: *mut *mut PamResponse,
+    appdata_ptr: *mut c_void,
+) -> c_int {
+    if num_msg <= 0 || msg.is_null() || resp.is_null() {
+        return libc::EINVAL; // Invalid argument
+    }
+
+    unsafe {
+        // Allocate array of pointers to PamResponse
+        let responses = libc::calloc(num_msg as usize, std::mem::size_of::<PamResponse>()) as *mut PamResponse;
+        if responses.is_null() {
+            return libc::ENOMEM;
+        }
+        
+        // Initialize responses
+        *resp = responses;
+
+        let msgs = std::slice::from_raw_parts(msg, num_msg as usize);
+        let responses_slice = std::slice::from_raw_parts_mut(responses, num_msg as usize);
+        let password = appdata_ptr as *const c_char;
+
+        for i in 0..num_msg as usize {
+            let m = &*msgs[i];
+            
+            // Default initialization
+            responses_slice[i].resp = std::ptr::null_mut();
+            responses_slice[i].resp_retcode = 0;
+
+            if m.msg_style == PAM_PROMPT_ECHO_OFF {
+                // Password prompt
+                responses_slice[i].resp = libc::strdup(password);
+            }
+        }
+    }
+
+    PAM_SUCCESS
+}
+
+// Authenticate user with PAM (dynamically loaded)
 fn authenticate_with_pam(username: &str, password: &str) -> Result<(), String> {
-    let mut auth = pam::Authenticator::with_password("login")
-        .map_err(|e| format!("PAM initialization failed: {}", e))?;
-    
-    auth.get_handler().set_credentials(username, password);
-    
-    auth.authenticate()
-        .map_err(|e| format!("Authentication failed: {}", e))?;
-    
-    auth.open_session()
-        .map_err(|e| format!("Session open failed: {}", e))?;
-    
+    unsafe {
+        // Try to load libpam.so.0 (common on Linux), then libpam.so
+        let lib = Library::new("libpam.so.0")
+            .or_else(|_| Library::new("libpam.so"))
+            .map_err(|e| format!("Failed to load libpam: {}", e))?;
+
+        // Define function signatures
+        type PamStart = unsafe extern "C" fn(
+            service_name: *const c_char,
+            user: *const c_char,
+            pam_conversation: *const PamConv,
+            pamh: *mut *mut c_void,
+        ) -> c_int;
+
+        type PamAuthenticate = unsafe extern "C" fn(
+            pamh: *mut c_void,
+            flags: c_int,
+        ) -> c_int;
+
+        type PamAcctMgmt = unsafe extern "C" fn(
+            pamh: *mut c_void,
+            flags: c_int,
+        ) -> c_int;
+
+        type PamEnd = unsafe extern "C" fn(
+            pamh: *mut c_void,
+            pam_status: c_int,
+        ) -> c_int;
+
+        // Load symbols
+        let pam_start: Symbol<PamStart> = lib.get(b"pam_start\0")
+            .map_err(|e| format!("Failed to load pam_start: {}", e))?;
+        let pam_authenticate: Symbol<PamAuthenticate> = lib.get(b"pam_authenticate\0")
+            .map_err(|e| format!("Failed to load pam_authenticate: {}", e))?;
+        let pam_acct_mgmt: Symbol<PamAcctMgmt> = lib.get(b"pam_acct_mgmt\0")
+            .map_err(|e| format!("Failed to load pam_acct_mgmt: {}", e))?;
+        let pam_end: Symbol<PamEnd> = lib.get(b"pam_end\0")
+            .map_err(|e| format!("Failed to load pam_end: {}", e))?;
+
+        // Prepare arguments
+        let c_service = CString::new("login").unwrap();
+        let c_user = CString::new(username).unwrap();
+        let c_password = CString::new(password).unwrap();
+        
+        let conv = PamConv {
+            conv: conversation_handler,
+            appdata_ptr: c_password.as_ptr() as *mut c_void,
+        };
+
+        let mut pamh: *mut c_void = std::ptr::null_mut();
+
+        // Start PAM transaction
+        let retval = pam_start(
+            c_service.as_ptr(),
+            c_user.as_ptr(),
+            &conv,
+            &mut pamh
+        );
+
+        if retval != PAM_SUCCESS {
+            return Err(format!("pam_start failed: {}", retval));
+        }
+
+        // Authenticate
+        let retval = pam_authenticate(pamh, 0);
+        if retval != PAM_SUCCESS {
+            pam_end(pamh, retval);
+            return Err(format!("pam_authenticate failed: {}", retval));
+        }
+
+        // Account management (check if account acts expired, etc.)
+        let retval = pam_acct_mgmt(pamh, 0);
+        if retval != PAM_SUCCESS {
+            pam_end(pamh, retval);
+            return Err(format!("pam_acct_mgmt failed: {}", retval));
+        }
+
+        // End transaction
+        pam_end(pamh, PAM_SUCCESS);
+        Ok(())
+    }
+}
+
+// Authenticate user with config file
+fn authenticate_with_config(config: &Config, username: &str, password: &str) -> Result<String, String> {
+    for user in &config.users {
+        if user.username == username && user.password == password {
+            return Ok(user.data_dir.clone());
+        }
+    }
+    Err("Invalid username or password".to_string())
+}
+
+// Get user from reverse proxy header
+fn get_user_from_header(username: &str) -> Result<(), String> {
+    if username.is_empty() {
+        return Err("No username provided in header".to_string());
+    }
+    // Validate username contains only safe characters
+    if !username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.') {
+        return Err("Invalid username format".to_string());
+    }
     Ok(())
 }
 
@@ -321,9 +510,75 @@ fn is_authenticated(jar: &CookieJar, state: &AppState) -> bool {
 async fn public_page_auth_middleware(
     State(state): State<AppState>,
     jar: CookieJar,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Result<Response, Redirect> {
+    // For reverse proxy auth, check X-Remote-User header
+    if state.auth_type == AuthType::None {
+        if let Some(username) = req.headers().get("X-Remote-User") {
+            if let Ok(username_str) = username.to_str() {
+                if get_user_from_header(username_str).is_ok() {
+                    // Create auto-login token for this user
+                    // For reverse proxy auth, try to get system home dir, fallback to /home/{username}
+                    let home_dir = get_user_home(username_str)
+                        .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username_str)));
+                    let data_dir = home_dir.join(".local/share/fleabox");
+                    
+                    let token = Uuid::new_v4().to_string();
+                    let token_info = TokenInfo {
+                        user: username_str.to_string(),
+                        app: "*".to_string(),
+                        expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
+                        data_dir,
+                    };
+                    
+                    {
+                        let mut store = state.token_store.write().unwrap();
+                        store.insert(token.clone(), token_info);
+                    }
+                    
+                    // Add token to request extensions for downstream handlers
+                    req.extensions_mut().insert(token);
+                    let response = next.run(req).await;
+                    return Ok((jar, response).into_response());
+                }
+            }
+        }
+        
+        // In dev mode, fallback to current user if no header
+        if state.dev_mode {
+             if let Some(username) = get_current_user() {
+                 let home_dir = get_user_home(&username)
+                     .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
+                 let data_dir = home_dir.join(".local/share/fleabox");
+                 
+                 let token = Uuid::new_v4().to_string();
+                 let token_info = TokenInfo {
+                     user: username,
+                     app: "*".to_string(),
+                     expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
+                     data_dir,
+                 };
+                 
+                 {
+                     let mut store = state.token_store.write().unwrap();
+                     store.insert(token.clone(), token_info);
+                 }
+                 
+                 req.extensions_mut().insert(token);
+                 let response = next.run(req).await;
+                 return Ok((jar, response).into_response());
+             }
+        }
+
+        // No valid header found
+        return Ok((
+            StatusCode::UNAUTHORIZED,
+            "X-Remote-User header required but not found or invalid"
+        ).into_response());
+    }
+    
+    // For PAM and Config auth, check cookie
     if !is_authenticated(&jar, &state) {
         let uri = req.uri();
         let next_url = urlencoding::encode(uri.path());
@@ -336,7 +591,15 @@ async fn public_page_auth_middleware(
 async fn login_page(
     State(state): State<AppState>,
     Query(query): Query<LoginQuery>,
-) -> Html<String> {
+) -> Result<Html<String>, ErrorResponse> {
+    // Don't show login page for reverse proxy auth
+    if state.auth_type == AuthType::None {
+        return Err(ErrorResponse::new(
+            "bad_request",
+            Some("Login page not available with reverse proxy authentication".to_string())
+        ));
+    }
+    
     // Export public key as SPKI PEM format
     let public_key_pem = state
         .rsa_private_key
@@ -551,7 +814,7 @@ async fn login_page(
         next_json = serde_json::to_string(&next_url).unwrap()
     );
     
-    Html(html)
+    Ok(Html(html))
 }
 
 // POST /login - Handle login
@@ -574,13 +837,29 @@ async fn login_handler(
     let password = String::from_utf8(decrypted_bytes)
         .map_err(|_| ErrorResponse::new("bad_request", Some("Invalid UTF-8 in password".to_string())))?;
     
-    // Authenticate with PAM
-    authenticate_with_pam(&login_req.username, &password)
-        .map_err(|e| ErrorResponse::new("unauthorized", Some(format!("Authentication failed: {}", e))))?;
-    
-    // Verify user exists on the system
-    get_user_home(&login_req.username)
-        .ok_or_else(|| ErrorResponse::new("unauthorized", Some("User not found".to_string())))?;
+    // Authenticate based on auth type and get data directory
+    let data_dir = match state.auth_type {
+        AuthType::Pam => {
+            authenticate_with_pam(&login_req.username, &password)
+                .map_err(|e| ErrorResponse::new("unauthorized", Some(format!("Authentication failed: {}", e))))?;
+            
+            // Verify user exists on the system and get home dir
+            let home = get_user_home(&login_req.username)
+                .ok_or_else(|| ErrorResponse::new("unauthorized", Some("User not found".to_string())))?;
+            home.join(".local/share/fleabox")
+        }
+        AuthType::Config => {
+            let config = state.config.as_ref()
+                .ok_or_else(|| ErrorResponse::new("unauthorized", Some("Config not loaded".to_string())))?;
+            
+            let data_dir_str = authenticate_with_config(config, &login_req.username, &password)
+                .map_err(|e| ErrorResponse::new("unauthorized", Some(e)))?;
+            PathBuf::from(data_dir_str)
+        }
+        AuthType::None => {
+            return Err(ErrorResponse::new("bad_request", Some("Login not available with header-based authentication".to_string())));
+        }
+    };
     
     // Create session token (valid for 8 hours, no app restriction for root token)
     let token = Uuid::new_v4().to_string();
@@ -588,6 +867,7 @@ async fn login_handler(
         user: login_req.username.clone(),
         app: "*".to_string(), // Wildcard for root authentication
         expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
+        data_dir,
     };
     
     // Store token
@@ -615,7 +895,52 @@ async fn token_auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ErrorResponse> {
-    // Extract token from cookie
+    // For reverse proxy auth, check X-Remote-User header
+    if state.auth_type == AuthType::None {
+        if let Some(username) = req.headers().get("X-Remote-User") {
+            if let Ok(username_str) = username.to_str() {
+                if get_user_from_header(username_str).is_ok() {
+                    // Extract app_id from path
+                    let path = req.uri().path().to_string();
+                    if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
+                        let username_owned = username_str.to_string();
+                        let app_id_owned = app_id.to_string();
+                        
+                        let home_dir = get_user_home(username_str)
+                            .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username_str)));
+                        let data_dir = home_dir.join(".local/share/fleabox");
+                        
+                        // Add user and app info to request extensions
+                        req.extensions_mut().insert(username_owned);
+                        req.extensions_mut().insert(app_id_owned);
+                        req.extensions_mut().insert(UserInfo { home_dir: data_dir });
+                        return Ok(next.run(req).await);
+                    }
+                }
+            }
+        }
+
+        // In dev mode, fallback to current user if no header
+        if state.dev_mode {
+            if let Some(username) = get_current_user() {
+                 let path = req.uri().path().to_string();
+                 if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
+                     let home_dir = get_user_home(&username)
+                         .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
+                     let data_dir = home_dir.join(".local/share/fleabox");
+
+                     req.extensions_mut().insert(username);
+                     req.extensions_mut().insert(app_id.to_string());
+                     req.extensions_mut().insert(UserInfo { home_dir: data_dir });
+                     return Ok(next.run(req).await);
+                 }
+            }
+        }
+
+        return Err(ErrorResponse::new("unauthorized", Some("X-Remote-User header required but not found or invalid".to_string())));
+    }
+    
+    // For PAM and Config auth, extract token from cookie
     let token = jar
         .get("fleabox_token")
         .ok_or_else(|| ErrorResponse::new("unauthorized", Some("Missing authentication token".to_string())))?
@@ -656,16 +981,8 @@ async fn token_auth_middleware(
         ));
     }
     
-    // Get user's home directory
-    let home_dir = get_user_home(&token_info.user).ok_or_else(|| {
-        ErrorResponse::new(
-            "unauthorized",
-            Some(format!("User '{}' not found", token_info.user)),
-        )
-    })?;
-    
-    // Store user info in request extensions
-    req.extensions_mut().insert(UserInfo { home_dir });
+    // Store user info in request extensions (use data_dir from token)
+    req.extensions_mut().insert(UserInfo { home_dir: token_info.data_dir });
     
     Ok(next.run(req).await)
 }
@@ -682,7 +999,6 @@ async fn api_get_data(
 
     let data_root = user_info
         .home_dir
-        .join(".local/share/fleabox")
         .join(&app_id)
         .join("data");
 
@@ -780,7 +1096,6 @@ async fn api_put_data(
 
     let data_root = user_info
         .home_dir
-        .join(".local/share/fleabox")
         .join(&app_id)
         .join("data");
 
@@ -879,7 +1194,6 @@ async fn api_delete_data(
 
     let data_root = user_info
         .home_dir
-        .join(".local/share/fleabox")
         .join(&app_id)
         .join("data");
 
@@ -1081,39 +1395,8 @@ async fn serve_app_index(
     
     match fs::read_to_string(&index_path) {
         Ok(content) => {
-            // Get username from either header (prod) or current user (dev)
-            let username = if let Some(user_header) = req.headers().get("X-Remote-User") {
-                user_header.to_str().unwrap_or("unknown").to_string()
-            } else {
-                get_current_user().unwrap_or_else(|| "unknown".to_string())
-            };
-            
-            // Generate a new token for this app access
-            let token = Uuid::new_v4().to_string();
-            let token_info = TokenInfo {
-                user: username,
-                app: app_name.to_string(),
-                expiry: SystemTime::now() + Duration::from_secs(3600 * 24), // 24 hour expiry
-            };
-            
-            // Store token
-            {
-                let mut store = state.token_store.write().unwrap();
-                store.insert(token.clone(), token_info);
-            }
-            
-            // Set cookie with token
-            let cookie: Cookie = Cookie::build(("fleabox_token", token))
-                .path("/")
-                .same_site(SameSite::Strict)
-                .http_only(true)
-                .into();
-            
-            let jar = jar.add(cookie);
-            
             (
                 StatusCode::OK,
-                jar,
                 [(axum::http::header::CONTENT_TYPE, "text/html")],
                 content,
             )
@@ -1121,6 +1404,38 @@ async fn serve_app_index(
         }
         Err(_) => (StatusCode::NOT_FOUND, "App not found").into_response(),
     }
+}
+
+// Parse --auth argument from command line
+fn parse_auth_arg(args: &[String]) -> Result<AuthType, String> {
+    match args.iter().position(|arg| arg.starts_with("--auth=")) {
+        Some(pos) => {
+            let arg = &args[pos];
+            let value = arg.strip_prefix("--auth=").unwrap();
+            match value {
+                "pam" => Ok(AuthType::Pam),
+                "config" => Ok(AuthType::Config),
+                "none" => Ok(AuthType::None),
+                _ => Err(format!("Error: Invalid auth type '{}'. Valid options: pam, config, none", value)),
+            }
+        }
+        None => Ok(AuthType::Pam), // Default to PAM for backward compatibility
+    }
+}
+
+// Load configuration file
+fn load_config(path: &str) -> Result<Config, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read config file: {}", e))?;
+    
+    let config: Config = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config file: {}", e))?;
+    
+    if config.users.is_empty() {
+        return Err("Config file must contain at least one user".to_string());
+    }
+    
+    Ok(config)
 }
 
 // Parse --apps-dir argument from command line with validation
@@ -1143,20 +1458,41 @@ fn parse_apps_dir_arg(args: &[String]) -> Result<String, String> {
     }
 }
 
+// Parse --port argument from command line
+fn parse_port_arg(args: &[String]) -> Result<u16, String> {
+    match args.iter().position(|arg| arg == "--port") {
+        Some(pos) => {
+            match args.get(pos + 1) {
+                Some(value) => {
+                    value.parse::<u16>().map_err(|_| format!("Error: Invalid port number '{}'", value))
+                }
+                None => Err("Error: --port requires a port number argument".to_string()),
+            }
+        }
+        None => Ok(3000), // Default port
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-    let _dev_mode = args.contains(&"--dev".to_string());
+    let dev_mode = args.contains(&"--dev".to_string());
 
     // Print concise instructions when called with --help
     if args.contains(&"--help".to_string()) {
         println!("fleabox - self-hosted app server");
-        println!("Usage: fleabox [--dev] [--apps-dir <directory>]");
+        println!("Usage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
         println!("");
         println!("Options:");
         println!("  --dev            Run in development mode (uses current user)");
         println!("  --apps-dir DIR   Path to apps directory (default: /srv/fleabox)");
+        println!("  --port PORT      Port to listen on (default: 3000)");
+        println!("  --auth=TYPE      Authentication type: pam, config, or none (default: pam)");
+        println!("                   - pam: Use system PAM authentication");
+        println!("                   - config: Use config file with username/password");
+        println!("                   - none: Use X-Remote-User header from reverse proxy");
+        println!("  --config=FILE    Path to config file (required for --auth=config)");
         std::process::exit(0);
     }
 
@@ -1165,9 +1501,62 @@ async fn main() {
         Ok(dir) => dir,
         Err(msg) => {
             eprintln!("{}", msg);
-            eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>]");
+            eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
             std::process::exit(1);
         }
+    };
+
+    // Parse --port argument
+    let port = match parse_port_arg(&args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{}", msg);
+             eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--port <port>] [--auth=<type>] [--config=<file>]");
+            std::process::exit(1);
+        }
+    };
+
+    // Parse --auth argument
+    let auth_arg_present = args.iter().any(|arg| arg.starts_with("--auth="));
+    let auth_type = if !auth_arg_present && dev_mode {
+        AuthType::None
+    } else {
+        match parse_auth_arg(&args) {
+            Ok(auth) => auth,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+                std::process::exit(1);
+            }
+        }
+    };
+
+
+
+    // Load config file if needed
+    let config = if auth_type == AuthType::Config {
+        let config_path = args.iter()
+            .position(|arg| arg.starts_with("--config="))
+            .and_then(|pos| args[pos].strip_prefix("--config="));
+        
+        let config_path = match config_path {
+            Some(path) => path,
+            None => {
+                eprintln!("Error: --auth=config requires --config=<file> argument");
+                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+                std::process::exit(1);
+            }
+        };
+        
+        match load_config(config_path) {
+            Ok(cfg) => Some(Arc::new(cfg)),
+            Err(msg) => {
+                eprintln!("{}", msg);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
     };
 
     // Generate RSA keypair for password encryption
@@ -1183,6 +1572,9 @@ async fn main() {
         token_store: Arc::new(RwLock::new(HashMap::new())),
         apps_dir,
         rsa_private_key: Arc::new(rsa_private_key),
+        auth_type: auth_type.clone(),
+        config,
+        dev_mode,
     };
 
     // API routes with token-based authentication
@@ -1210,12 +1602,18 @@ async fn main() {
         .route("/login", post(login_handler))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .unwrap();
     
-    println!("Server running on http://0.0.0.0:3000");
-    println!("OS-based authentication enabled (PAM)");
+    println!("Server running on http://0.0.0.0:{}", port);
+    match auth_type {
+        AuthType::Pam => println!("Authentication: PAM (system users)"),
+        AuthType::Config => println!("Authentication: Config file"),
+        AuthType::None => println!("Authentication: Reverse proxy (X-Remote-User header)"),
+    }
     println!("Password encryption: RSA-2048 with OAEP");
     axum::serve(listener, app).await.unwrap();
 }
