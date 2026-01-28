@@ -22,30 +22,73 @@ const TEST_PORT = 3001; // Use separate port for auth tests
 const BASE_URL = `http://localhost:${TEST_PORT}`;
 
 // Helper to start fleabox server
-async function startFleabox(args: string[]): Promise<ChildProcess> {
+async function startFleabox(args: string[], useSudo: boolean = false): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('cargo', ['run', '--', ...args], {
-      cwd: PROJECT_DIR,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    let proc: ChildProcess;
+    
+    if (useSudo) {
+      // For PAM authentication, run with sudo
+      // Build the binary first to avoid sudo issues with cargo
+      const buildProc = spawn('cargo', ['build'], {
+        cwd: PROJECT_DIR,
+        stdio: 'inherit'
+      });
+      
+      buildProc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error('Build failed'));
+          return;
+        }
+        
+        // Run the built binary with sudo
+        const binaryPath = path.join(PROJECT_DIR, 'target', 'debug', 'fleabox');
+        proc = spawn('sudo', [binaryPath, ...args], {
+          cwd: PROJECT_DIR,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        
+        let output = '';
 
-    let output = '';
+        proc.stdout?.on('data', (data) => {
+          output += data.toString();
+          if (output.includes('Server running')) {
+            resolve(proc);
+          }
+        });
 
-    proc.stdout?.on('data', (data) => {
-      output += data.toString();
-      if (output.includes('Server running')) {
-        resolve(proc);
-      }
-    });
+        proc.stderr?.on('data', (data) => {
+          console.error('Fleabox stderr:', data.toString());
+        });
 
-    proc.stderr?.on('data', (data) => {
-      console.error('Fleabox stderr:', data.toString());
-    });
+        proc.on('error', reject);
 
-    proc.on('error', reject);
+        // Timeout after 15 seconds
+        setTimeout(() => reject(new Error('Server startup timeout')), 15000);
+      });
+    } else {
+      proc = spawn('cargo', ['run', '--', ...args], {
+        cwd: PROJECT_DIR,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
 
-    // Timeout after 15 seconds
-    setTimeout(() => reject(new Error('Server startup timeout')), 15000);
+      let output = '';
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+        if (output.includes('Server running')) {
+          resolve(proc);
+        }
+      });
+
+      proc.stderr?.on('data', (data) => {
+        console.error('Fleabox stderr:', data.toString());
+      });
+
+      proc.on('error', reject);
+
+      // Timeout after 15 seconds
+      setTimeout(() => reject(new Error('Server startup timeout')), 15000);
+    }
   });
 }
 
@@ -54,11 +97,17 @@ function stopFleabox(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     if (!proc.killed) {
       proc.kill('SIGTERM');
-      proc.on('exit', () => resolve());
+      proc.on('exit', () => {
+        // Also try to kill any remaining fleabox processes
+        spawn('sudo', ['pkill', '-9', 'fleabox']);
+        setTimeout(() => resolve(), 500);
+      });
       setTimeout(() => {
         if (!proc.killed) {
           proc.kill('SIGKILL');
-          resolve();
+          // Ensure cleanup
+          spawn('sudo', ['pkill', '-9', 'fleabox']);
+          setTimeout(() => resolve(), 500);
         }
       }, 2000);
     } else {
@@ -494,12 +543,12 @@ test.describe('PAM Authentication', () => {
       return;
     }
 
-    // Start server with PAM auth
+    // Start server with PAM auth (using sudo for PAM permissions)
     server = await startFleabox([
       '--apps-dir', EXAMPLES_DIR,
       '--auth=pam',
       '--port', '3002'
-    ]);
+    ], true); // Use sudo for PAM authentication
 
     await waitForServer(baseURL);
   });
@@ -549,7 +598,15 @@ test.describe('PAM Authentication', () => {
   });
 
   test('should store alice data in her home directory', async ({ page }) => {
-    // This test runs after alice's login test, so session may still be active
+    // Login as alice first
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'alice');
+    await page.fill('input[name="password"]', 'alice123');
+    await page.click('button[type="submit"]');
+    
+    // Wait for redirect after login
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
     await page.waitForLoadState('networkidle');
@@ -599,8 +656,17 @@ test.describe('PAM Authentication', () => {
     expect(page.url()).toContain('/todo');
   });
 
-  test('should isolate data between alice and bob', async ({ page }) => {
-    // This test runs after bob's login test, so session may still be active
+  test('should isolate data between alice and bob', async ({ page, context }) => {
+    // Clear cookies and login as bob
+    await context.clearCookies();
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'bob');
+    await page.fill('input[name="password"]', 'bob123');
+    await page.click('button[type="submit"]');
+    
+    // Wait for redirect after login
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
     await page.waitForLoadState('networkidle');
