@@ -12,7 +12,9 @@ The goal is to make personal web apps boring, inspectable, and easy to back up.
 
 ### Setup
 
-Fleabag will serve any static app in /srv/fleabox/<app-id>. For the time being, you need to create this directory structure manually. App installation is an upcoming feature.
+Download and install Fleabox from the [releases page](https://github.com/jaksa76/fleabox/releases).
+
+Fleabox will serve any static app in `/srv/fleabox/`<app-id>. For the time being, you need to create this directory structure manually. App installation is an upcoming feature.
 
 Once you have placed your app in the appropriate directory, start the Fleabox server:
 
@@ -36,12 +38,11 @@ This is useful for development or when you want to store your apps in a custom l
 
 ### Data Storage
 
-Each app can read and write its own data in JSON format. The data storage location depends on the authentication mode:
+Each app can read and write its own data. The data storage location depends on the authentication mode:
 
 - **PAM authentication**: Data is stored in `~/.local/share/fleabox/<app-id>/data/` where `~` is the authenticated user's home directory
 - **Config authentication**: Data is stored in `<data_dir>/<app-id>/data/` where `<data_dir>` is specified for each user in the config file
 - **Reverse proxy authentication**: Data is stored in `~/.local/share/fleabox/<app-id>/data/` where `~` is the home directory of the user identified by the `X-Remote-User` header
-- **Dev mode**: Data is stored in `~/.local/share/fleabox/<app-id>/data/` where `~` is the home directory of the user running fleabox
 
 ### Authentication
 
@@ -49,21 +50,14 @@ Fleabox supports three authentication modes:
 
 #### 1. PAM Authentication (default)
 
-Uses system PAM authentication to verify users against OS credentials. This requires the PAM library at both compile time and runtime.
+Uses system PAM authentication to verify users against OS credentials. This requires the PAM to be installed on the OS. Also requires fleabox to be run as root.
 
 ```bash
-# Build with PAM support
-cargo build --features pam --release
-
-# Run with PAM authentication
-fleabox --auth pam
+sudo fleabox --auth pam
 ```
 
 Data is stored in each user's home directory at `~/.local/share/fleabox/<app-id>/data/`.
 
-**Requirements:**
-- Compile time: `libpam-dev` (Debian/Ubuntu) or `pam-devel` (RHEL/Fedora)
-- Runtime: `libpam0g` (usually pre-installed on Linux systems)
 
 #### 2. Config File Authentication
 
@@ -107,34 +101,31 @@ fleabox --auth none
 
 Data is stored in `~<username>/.local/share/fleabox/<app-id>/data/` where `<username>` is from the `X-Remote-User` header.
 
-**Example nginx configuration:**
-```nginx
-location / {
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    
-    proxy_pass http://localhost:3000;
-    proxy_set_header X-Remote-User $remote_user;
-}
-```
-
 **Security note:** Only use this mode when fleabox is behind a properly configured reverse proxy. Never expose it directly to the internet with `--auth=none`.
 
 
-## Developer's Guide
+## Developing Fleabox Apps
+
+Fleabox serves static web apps. You can develop your own apps using any frontend framework or plain HTML/JS/CSS. The easiest thing to do is to paste the contents of [AGENT_INSTRUCTIONS.md](AGENT_INSTRUCTIONS.md) into your agent's instruction file.
+
+If you are not using a coding agent, read the instructions yourself to understand how to interact with Fleabox's data API. They are very simple REST endpoints for reading and writing JSON files.
+
+
+## Contributor's Guide
+
+This project is meant to be developed using the devcontainer setup provided. Among other things, the devcontainer sets up test users for authentication testing.
 
 ### Building
 
-Building the application without PAM support:
+Building the application:
+
+```bash
+cargo build
+```
+or for a release build:
 
 ```bash
 cargo build --release
-```
-
-Building with PAM support:
-
-```bash
-cargo build --features pam --release
 ```
 
 ### Running Tests
@@ -153,9 +144,16 @@ npm install
 npm test
 ```
 
-The e2e tests include comprehensive testing of all authentication modes.
+You can run authentication tests separately:
+
+```bash
+npm run test:auth
+```
 
 ### Development Mode
+
+Development mode is useful for testing apps. Dev mode bypasses authentication and uses the current user running the process. This makes it easy to develop and test apps locally without setting up authentication.
+
 
 You can copy the examples folder into /srv/fleabox/ to try out the sample apps. Then you should run it with:
 
@@ -169,4 +167,3 @@ Or you can use a custom directory:
 cargo run -- --dev --apps-dir ./examples
 ```
 
-Dev mode bypasses authentication and uses the current user running the process. This makes it easy to develop and test apps locally without setting up authentication.
