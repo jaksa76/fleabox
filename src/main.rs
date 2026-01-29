@@ -622,9 +622,16 @@ async fn login_page(
             padding: 0;
             box-sizing: border-box;
         }}
+        html, body {{
+            height: 100%;
+        }}
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+            background: radial-gradient(1200px 600px at 10% 10%, rgba(156,163,175,0.04), transparent),
+                        linear-gradient(180deg, #090912 0%, #0f1724 100%);
+            color: #e6eef8c4;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -632,87 +639,108 @@ async fn login_page(
             padding: 20px;
         }}
         .container {{
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            max-width: 400px;
+            background: rgba(15, 23, 36, 0.6);
+            border: 1px solid rgba(230, 238, 248, 0.08);
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            padding: 48px 40px;
+            max-width: 420px;
             width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }}
         h1 {{
             font-size: 2rem;
-            font-weight: 700;
-            color: #333;
-            margin-bottom: 10px;
+            font-weight: 200;
+            color: #ffffff;
+            margin-bottom: 8px;
             text-align: center;
+            letter-spacing: -0.02em;
         }}
         .subtitle {{
             text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 0.95rem;
+            color: #9aa4b2;
+            margin-bottom: 32px;
+            font-size: 0.9rem;
+            letter-spacing: 0.01em;
         }}
         .form-group {{
-            margin-bottom: 20px;
+            margin-bottom: 24px;
         }}
         label {{
             display: block;
             margin-bottom: 8px;
-            color: #333;
+            color: #9aa4b2;
             font-weight: 500;
-            font-size: 0.9rem;
+            font-size: 0.875rem;
+            letter-spacing: 0.01em;
         }}
         input {{
             width: 100%;
             padding: 12px 16px;
-            border: 2px solid #e0e0e0;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(230, 238, 248, 0.12);
             border-radius: 8px;
             font-size: 1rem;
-            transition: border-color 0.2s;
+            color: #e6eef8;
+            transition: all 0.2s ease;
         }}
         input:focus {{
             outline: none;
-            border-color: #667eea;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(230, 238, 248, 0.24);
+        }}
+        input::placeholder {{
+            color: #728096;
         }}
         button {{
             width: 100%;
             padding: 14px;
-            background: #667eea;
-            color: white;
-            border: none;
+            background: rgba(230, 238, 248, 0.08);
+            color: #ffffff;
+            border: 1px solid rgba(230, 238, 248, 0.12);
             border-radius: 8px;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: 500;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s ease;
+            margin-top: 8px;
         }}
         button:hover {{
-            background: #5568d3;
+            background: rgba(230, 238, 248, 0.12);
+            border-color: rgba(230, 238, 248, 0.2);
+            transform: translateY(-1px);
+        }}
+        button:active {{
+            transform: translateY(0);
         }}
         button:disabled {{
-            background: #ccc;
+            background: rgba(230, 238, 248, 0.04);
+            border-color: rgba(230, 238, 248, 0.06);
+            color: #728096;
             cursor: not-allowed;
+            transform: none;
         }}
         .error {{
-            background: #fee;
-            border: 1px solid #fcc;
-            color: #c33;
-            padding: 12px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 12px 16px;
             border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 0.9rem;
+            margin-bottom: 24px;
+            font-size: 0.875rem;
         }}
         .lock-icon {{
             text-align: center;
-            font-size: 3rem;
-            margin-bottom: 20px;
+            font-size: 2.5rem;
+            margin-bottom: 24px;
+            opacity: 0.6;
         }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="lock-icon">🔒</div>
-        <h1>Login to Fleabox</h1>
+        <h1>fleabox</h1>
         <p class="subtitle">Enter your system credentials</p>
         <div id="error" class="error" style="display: none;"></div>
         <form id="loginForm">
