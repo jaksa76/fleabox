@@ -14,42 +14,66 @@ npx playwright install
 
 ## Running Tests
 
-Run all tests (headless):
+### Run all tests (both app and auth tests):
 ```bash
 npm test
 ```
 
-Run tests with browser visible:
+### Run only application tests (todo, bookmarks, homepage):
 ```bash
-npm run test:headed
+npm run test:app
 ```
 
-Run tests in UI mode (interactive):
-```bash
-npm run test:ui
-```
-
-Debug tests:
-```bash
-npm run test:debug
-```
-
-Run authentication tests (tests all auth modes):
+### Run only authentication tests:
 ```bash
 npm run test:auth
 ```
 
+### Debug tests interactively:
+```bash
+npm run test:debug
+```
+
+### View test report:
+```bash
+npm run test:report
+```
+
 ## Test Structure
 
-- `tests/` - Test files
-  - `homepage.spec.ts` - Homepage and app listing tests
-  - `todo.spec.ts` - Todo app functionality tests
-  - `bookmarks.spec.ts` - Bookmarks app tests
-  - `auth.spec.ts` - Authentication mode tests (config, proxy, dev)
-- `playwright.config.ts` - Default Playwright configuration (dev mode)
-- `playwright.auth.config.ts` - Configuration for authentication tests
+The tests are organized into two projects:
 
-The standard tests automatically start the Fleabox server in dev mode before running. The authentication tests (`auth.spec.ts`) start and stop their own server instances with different configurations.
+### 1. App Tests (`app-tests` project)
+Regular application functionality tests that share a single dev server:
+- `tests/homepage.spec.ts` - Homepage and app listing tests
+- `tests/todo.spec.ts` - Todo app functionality tests
+- `tests/bookmarks.spec.ts` - Bookmarks app tests
+
+These tests use a shared webServer (defined in playwright.config.ts) that runs on port 3000.
+
+### 2. Auth Tests (`auth-tests` project)
+Authentication mode tests that manage their own server instances:
+- `tests/auth.spec.ts` - Authentication mode tests (config, proxy, dev)
+
+These tests start and stop their own server instances with different configurations on port 3001.
+
+## Configuration
+
+- `playwright.config.ts` - Main configuration with two test projects:
+  - `app-tests`: Uses shared webServer on port 3000
+  - `auth-tests`: Manages own servers, no shared webServer
+
+## Why Two Projects?
+
+The test suite is split into two projects to avoid conflicts:
+
+1. **App tests** need a persistent dev server that stays running across all tests
+2. **Auth tests** need to start/stop servers with different authentication configurations
+
+Running them as separate projects ensures:
+- The app tests' shared server doesn't interfere with auth test servers
+- Auth tests can safely start/stop servers without affecting other tests
+- Tests can run reliably whether run individually or all together
 
 ## Authentication Tests
 
@@ -59,8 +83,3 @@ The `auth.spec.ts` file contains comprehensive tests for all authentication mode
 - **Reverse Proxy Authentication**: Tests X-Remote-User header handling and home directory storage
 - **Dev Mode**: Tests no-auth mode with current user
 - **PAM Authentication**: Skipped (requires manual testing with real system users)
-
-To run only authentication tests:
-```bash
-npm run test:auth
-```

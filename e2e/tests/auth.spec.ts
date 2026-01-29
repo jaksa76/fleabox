@@ -72,22 +72,34 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
       });
 
       let output = '';
+      let resolved = false;
 
       proc.stdout?.on('data', (data) => {
-        output += data.toString();
-        if (output.includes('Server running')) {
+        const text = data.toString();
+        output += text;
+        if (!resolved && output.includes('Server running')) {
+          resolved = true;
           resolve(proc);
         }
       });
 
       proc.stderr?.on('data', (data) => {
-        console.error('Fleabox stderr:', data.toString());
+        const text = data.toString();
+        // Cargo outputs "Running" message to stderr, which includes our server startup message
+        if (!resolved && text.includes('Server running')) {
+          resolved = true;
+          resolve(proc);
+        }
       });
 
       proc.on('error', reject);
 
       // Timeout after 15 seconds
-      setTimeout(() => reject(new Error('Server startup timeout')), 15000);
+      setTimeout(() => {
+        if (!resolved) {
+          reject(new Error('Server startup timeout'));
+        }
+      }, 15000);
     }
   });
 }
