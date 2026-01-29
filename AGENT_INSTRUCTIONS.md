@@ -62,7 +62,7 @@ Development mode (no authentication required):
 fleabox --dev --apps-dir ./my-apps
 ```
 
-Production mode (requires reverse proxy with `X-Remote-User` header):
+Production mode:
 ```bash
 fleabox
 ```

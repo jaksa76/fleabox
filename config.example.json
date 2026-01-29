@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "username": "alice",
+      "password": "changeme123",
+      "data_dir": "/home/alice"
+    },
+    {
+      "username": "bob",
+      "password": "secret456",
+      "data_dir": "/home/bob"
+    }
+  ]
+}

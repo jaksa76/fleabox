@@ -5,11 +5,12 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:headed": "playwright test --headed",
-    "test:ui": "playwright test --ui",
+    "test:app": "playwright test --project=app-tests",
+    "test:auth": "playwright test --project=auth-tests",
     "test:debug": "playwright test --debug"
   },
   "devDependencies": {
-    "@playwright/test": "^1.41.0"
+    "@playwright/test": "^1.41.0",
+    "@types/node": "^25.1.0"
   }
 }
