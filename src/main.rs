@@ -639,14 +639,9 @@ async fn login_page(
             padding: 20px;
         }}
         .container {{
-            background: rgba(15, 23, 36, 0.6);
-            border: 1px solid rgba(230, 238, 248, 0.08);
-            border-radius: 12px;
-            backdrop-filter: blur(12px);
             padding: 48px 40px;
             max-width: 420px;
             width: 100%;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         }}
         h1 {{
             font-size: 2rem;
@@ -735,26 +730,39 @@ async fn login_page(
             margin-bottom: 24px;
             opacity: 0.6;
         }}
+        .footer {{
+            position: fixed;
+            left: 0; right: 0;
+            bottom: 12px;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }}
+        .footer .meta {{
+            color: #728096;
+            font-size: 0.82rem;
+            background: rgba(255,255,255,0.02);
+            padding: 6px 10px;
+            border-radius: 999px;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+        }}
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="lock-icon">🔒</div>
-        <h1>fleabox</h1>
-        <p class="subtitle">Enter your system credentials</p>
         <div id="error" class="error" style="display: none;"></div>
         <form id="loginForm">
             <div class="form-group">
-                <label for="username">Username</label>
-                <input type="text" id="username" name="username" required autocomplete="username">
+                <input type="text" id="username" name="username" required autocomplete="username" placeholder="Username">
             </div>
             <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Password">
             </div>
             <button type="submit" id="submitBtn">Login</button>
         </form>
     </div>
+    <div class="footer"><div class="meta">fleabox {}</div></div>
     <script>
         const PUBLIC_KEY_PEM = `{public_key_pem}`;
         const NEXT_URL = {next_json};
@@ -839,6 +847,7 @@ async fn login_page(
     </script>
 </body>
 </html>"#, 
+        env!("CARGO_PKG_VERSION"),
         public_key_pem = public_key_pem,
         next_json = serde_json::to_string(&next_url).unwrap()
     );
