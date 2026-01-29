@@ -25,7 +25,7 @@ const BASE_URL = `http://localhost:${TEST_PORT}`;
 async function startFleabox(args: string[], useSudo: boolean = false): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     let proc: ChildProcess;
-    
+
     if (useSudo) {
       // For PAM authentication, run with sudo
       // Build the binary first to avoid sudo issues with cargo
@@ -33,20 +33,20 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
         cwd: PROJECT_DIR,
         stdio: 'inherit'
       });
-      
+
       buildProc.on('close', (code) => {
         if (code !== 0) {
           reject(new Error('Build failed'));
           return;
         }
-        
+
         // Run the built binary with sudo
         const binaryPath = path.join(PROJECT_DIR, 'target', 'debug', 'fleabox');
         proc = spawn('sudo', [binaryPath, ...args], {
           cwd: PROJECT_DIR,
           stdio: ['ignore', 'pipe', 'pipe']
         });
-        
+
         let output = '';
 
         proc.stdout?.on('data', (data) => {
@@ -211,8 +211,8 @@ test.describe('Config-based Authentication', () => {
     // Start server with config auth
     server = await startFleabox([
       '--apps-dir', EXAMPLES_DIR,
-      '--auth=config',
-      `--config=${configPath}`,
+      '--auth', 'config',
+      '--config', configPath,
       '--port', '3001'
     ]);
 
@@ -276,7 +276,7 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="username"]', 'testuser');
     await page.fill('input[name="password"]', 'testpass123');
     await page.click('button[type="submit"]');
-    
+
     // Wait for redirect away from login page
     await page.waitForURL((url) => !url.pathname.includes('/login'));
     await page.waitForLoadState('networkidle');
@@ -314,7 +314,7 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="username"]', 'alice');
     await page.fill('input[name="password"]', 'alicepass');
     await page.click('button[type="submit"]');
-    
+
     // Wait for redirect away from login page
     await page.waitForURL((url) => !url.pathname.includes('/login'));
     await page.waitForLoadState('networkidle');
@@ -361,7 +361,7 @@ test.describe('Reverse Proxy Authentication (none)', () => {
     // Start server with no auth (reverse proxy mode)
     server = await startFleabox([
       '--apps-dir', EXAMPLES_DIR,
-      '--auth=none',
+      '--auth', 'none',
       '--port', '3001'
     ]);
 
@@ -546,7 +546,7 @@ test.describe('PAM Authentication', () => {
     // Start server with PAM auth (using sudo for PAM permissions)
     server = await startFleabox([
       '--apps-dir', EXAMPLES_DIR,
-      '--auth=pam',
+      '--auth', 'pam',
       '--port', '3002'
     ], true); // Use sudo for PAM authentication
 
@@ -603,10 +603,10 @@ test.describe('PAM Authentication', () => {
     await page.fill('input[name="username"]', 'alice');
     await page.fill('input[name="password"]', 'alice123');
     await page.click('button[type="submit"]');
-    
+
     // Wait for redirect after login
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-    
+
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
     await page.waitForLoadState('networkidle');
@@ -663,10 +663,10 @@ test.describe('PAM Authentication', () => {
     await page.fill('input[name="username"]', 'bob');
     await page.fill('input[name="password"]', 'bob123');
     await page.click('button[type="submit"]');
-    
+
     // Wait for redirect after login
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-    
+
     // Navigate to todo app
     await page.goto(`${baseURL}/todo/`);
     await page.waitForLoadState('networkidle');

@@ -56,7 +56,7 @@ Uses system PAM authentication to verify users against OS credentials. This requ
 cargo build --features pam --release
 
 # Run with PAM authentication
-fleabox --auth=pam
+fleabox --auth pam
 ```
 
 Data is stored in each user's home directory at `~/.local/share/fleabox/<app-id>/data/`.
@@ -71,7 +71,7 @@ Uses a JSON configuration file to define users, passwords, and data directories.
 
 ```bash
 # Run with config-based authentication
-fleabox --auth=config --config=/path/to/config.json
+fleabox --auth config --config /path/to/config.json
 ```
 
 **Config file format:**
@@ -102,7 +102,7 @@ Expects authentication to be handled by a reverse proxy (like nginx, Apache, or 
 
 ```bash
 # Run with reverse proxy authentication
-fleabox --auth=none
+fleabox --auth none
 ```
 
 Data is stored in `~<username>/.local/share/fleabox/<app-id>/data/` where `<username>` is from the `X-Remote-User` header.

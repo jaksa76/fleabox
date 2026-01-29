@@ -1405,19 +1405,32 @@ async fn serve_app_index(
 
 // Parse --auth argument from command line
 fn parse_auth_arg(args: &[String]) -> Result<AuthType, String> {
-    match args.iter().position(|arg| arg.starts_with("--auth=")) {
-        Some(pos) => {
-            let arg = &args[pos];
-            let value = arg.strip_prefix("--auth=").unwrap();
-            match value {
+    // Check for --auth=value
+    if let Some(pos) = args.iter().position(|arg| arg.starts_with("--auth=")) {
+        let value = args[pos].strip_prefix("--auth=").unwrap();
+        return match value {
+            "pam" => Ok(AuthType::Pam),
+            "config" => Ok(AuthType::Config),
+            "none" => Ok(AuthType::None),
+            _ => Err(format!("Error: Invalid auth type '{}'. Valid options: pam, config, none", value)),
+        };
+    }
+    
+    // Check for --auth value
+    if let Some(pos) = args.iter().position(|arg| arg == "--auth") {
+        if let Some(value) = args.get(pos + 1) {
+            return match value.as_str() {
                 "pam" => Ok(AuthType::Pam),
                 "config" => Ok(AuthType::Config),
                 "none" => Ok(AuthType::None),
                 _ => Err(format!("Error: Invalid auth type '{}'. Valid options: pam, config, none", value)),
-            }
+            };
+        } else {
+            return Err("Error: --auth requires an authentication type argument".to_string());
         }
-        None => Ok(AuthType::Pam), // Default to PAM for backward compatibility
     }
+    
+    Ok(AuthType::Pam) // Default
 }
 
 // Load configuration file
@@ -1437,37 +1450,52 @@ fn load_config(path: &str) -> Result<Config, String> {
 
 // Parse --apps-dir argument from command line with validation
 fn parse_apps_dir_arg(args: &[String]) -> Result<String, String> {
-    match args.iter().position(|arg| arg == "--apps-dir") {
-        Some(pos) => {
-            match args.get(pos + 1) {
-                Some(value) if !value.starts_with("--") && !value.is_empty() => {
-                    Ok(value.to_string())
-                }
-                Some(value) if value.starts_with("--") => {
-                    Err(format!("Error: --apps-dir requires a directory path argument, got '{}' instead", value))
-                }
-                _ => {
-                    Err("Error: --apps-dir requires a directory path argument".to_string())
-                }
+    // Check for --apps-dir=value
+    if let Some(pos) = args.iter().position(|arg| arg.starts_with("--apps-dir=")) {
+        let value = args[pos].strip_prefix("--apps-dir=").unwrap();
+        if value.is_empty() {
+             return Err("Error: --apps-dir requires a directory path argument".to_string());
+        }
+        return Ok(value.to_string());
+    }
+
+    // Check for --apps-dir value
+    if let Some(pos) = args.iter().position(|arg| arg == "--apps-dir") {
+        match args.get(pos + 1) {
+            Some(value) if !value.starts_with("--") && !value.is_empty() => {
+                return Ok(value.to_string());
+            }
+            Some(value) if value.starts_with("--") => {
+                return Err(format!("Error: --apps-dir requires a directory path argument, got '{}' instead", value));
+            }
+            _ => {
+                return Err("Error: --apps-dir requires a directory path argument".to_string());
             }
         }
-        None => Ok("/srv/fleabox".to_string()),
     }
+    
+    Ok("/srv/fleabox".to_string())
 }
 
 // Parse --port argument from command line
 fn parse_port_arg(args: &[String]) -> Result<u16, String> {
-    match args.iter().position(|arg| arg == "--port") {
-        Some(pos) => {
-            match args.get(pos + 1) {
-                Some(value) => {
-                    value.parse::<u16>().map_err(|_| format!("Error: Invalid port number '{}'", value))
-                }
-                None => Err("Error: --port requires a port number argument".to_string()),
-            }
-        }
-        None => Ok(3000), // Default port
+    // Check for --port=value
+    if let Some(pos) = args.iter().position(|arg| arg.starts_with("--port=")) {
+        let value = args[pos].strip_prefix("--port=").unwrap();
+        return value.parse::<u16>().map_err(|_| format!("Error: Invalid port number '{}'", value));
     }
+
+    // Check for --port value
+    if let Some(pos) = args.iter().position(|arg| arg == "--port") {
+        match args.get(pos + 1) {
+            Some(value) => {
+                return value.parse::<u16>().map_err(|_| format!("Error: Invalid port number '{}'", value));
+            }
+            None => return Err("Error: --port requires a port number argument".to_string()),
+        }
+    }
+    
+    Ok(3000) // Default port
 }
 
 #[tokio::main]
@@ -1479,17 +1507,17 @@ async fn main() {
     // Print concise instructions when called with --help
     if args.contains(&"--help".to_string()) {
         println!("fleabox - self-hosted app server");
-        println!("Usage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+        println!("Usage: fleabox [--dev] [--apps-dir <dir>] [--port <port>] [--auth <type>] [--config <file>]");
         println!("");
         println!("Options:");
         println!("  --dev            Run in development mode (uses current user)");
         println!("  --apps-dir DIR   Path to apps directory (default: /srv/fleabox)");
         println!("  --port PORT      Port to listen on (default: 3000)");
-        println!("  --auth=TYPE      Authentication type: pam, config, or none (default: pam)");
+        println!("  --auth TYPE      Authentication type: pam, config, or none (default: pam)");
         println!("                   - pam: Use system PAM authentication");
         println!("                   - config: Use config file with username/password");
         println!("                   - none: Use X-Remote-User header from reverse proxy");
-        println!("  --config=FILE    Path to config file (required for --auth=config)");
+        println!("  --config FILE    Path to config file (required for --auth config)");
         std::process::exit(0);
     }
 
@@ -1498,7 +1526,7 @@ async fn main() {
         Ok(dir) => dir,
         Err(msg) => {
             eprintln!("{}", msg);
-            eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+            eprintln!("\nUsage: fleabox [--dev] [--apps-dir <dir>] [--port <port>] [--auth <type>] [--config <file>]");
             std::process::exit(1);
         }
     };
@@ -1508,13 +1536,13 @@ async fn main() {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{}", msg);
-             eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--port <port>] [--auth=<type>] [--config=<file>]");
+             eprintln!("\nUsage: fleabox [--dev] [--apps-dir <dir>] [--port <port>] [--auth <type>] [--config <file>]");
             std::process::exit(1);
         }
     };
 
     // Parse --auth argument
-    let auth_arg_present = args.iter().any(|arg| arg.starts_with("--auth="));
+    let auth_arg_present = args.iter().any(|arg| arg.starts_with("--auth=") || arg == "--auth");
     let auth_type = if !auth_arg_present && dev_mode {
         AuthType::None
     } else {
@@ -1522,11 +1550,21 @@ async fn main() {
             Ok(auth) => auth,
             Err(msg) => {
                 eprintln!("{}", msg);
-                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <dir>] [--port <port>] [--auth <type>] [--config <file>]");
                 std::process::exit(1);
             }
         }
     };
+
+    // Check if running as root when PAM auth is enabled
+    if auth_type == AuthType::Pam {
+        unsafe {
+            if libc::getuid() != 0 {
+                eprintln!("Error: --auth=pam requires running as root");
+                std::process::exit(1);
+            }
+        }
+    }
 
 
 
@@ -1534,18 +1572,25 @@ async fn main() {
     let config = if auth_type == AuthType::Config {
         let config_path = args.iter()
             .position(|arg| arg.starts_with("--config="))
-            .and_then(|pos| args[pos].strip_prefix("--config="));
+            .and_then(|pos| args[pos].strip_prefix("--config="))
+            .map(|s| s.to_string())
+            .or_else(|| {
+                args.iter()
+                    .position(|arg| arg == "--config")
+                    .and_then(|pos| args.get(pos + 1))
+                    .map(|s| s.to_string())
+            });
         
         let config_path = match config_path {
             Some(path) => path,
             None => {
-                eprintln!("Error: --auth=config requires --config=<file> argument");
-                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <directory>] [--auth=<type>] [--config=<file>]");
+                eprintln!("Error: --auth config requires --config <file> argument");
+                eprintln!("\nUsage: fleabox [--dev] [--apps-dir <dir>] [--port <port>] [--auth <type>] [--config <file>]");
                 std::process::exit(1);
             }
         };
         
-        match load_config(config_path) {
+        match load_config(&config_path) {
             Ok(cfg) => Some(Arc::new(cfg)),
             Err(msg) => {
                 eprintln!("{}", msg);
@@ -1722,7 +1767,7 @@ mod tests {
         let apps_dir = parse_apps_dir_arg(&args).unwrap();
         assert_eq!(apps_dir, "/srv/fleabox");
 
-        // Test custom apps_dir
+        // Test custom apps_dir (space)
         let args = vec![
             "fleabox".to_string(),
             "--apps-dir".to_string(),
@@ -1730,6 +1775,14 @@ mod tests {
         ];
         let apps_dir = parse_apps_dir_arg(&args).unwrap();
         assert_eq!(apps_dir, "/custom/path");
+
+        // Test custom apps_dir (equals)
+        let args = vec![
+            "fleabox".to_string(),
+            "--apps-dir=/custom/path/equals".to_string(),
+        ];
+        let apps_dir = parse_apps_dir_arg(&args).unwrap();
+        assert_eq!(apps_dir, "/custom/path/equals");
 
         // Test with --apps-dir in the middle of other arguments
         let args = vec![
@@ -1749,6 +1802,12 @@ mod tests {
         let result = parse_apps_dir_arg(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("requires a directory path argument"));
+
+        // Test that --apps-dir= without a value returns an error
+        let args = vec!["fleabox".to_string(), "--apps-dir=".to_string()];
+        let result = parse_apps_dir_arg(&args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires a directory path argument"));
     }
 
     #[test]
@@ -1762,5 +1821,55 @@ mod tests {
         let result = parse_apps_dir_arg(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("requires a directory path argument"));
+    }
+
+    #[test]
+    fn test_parse_auth_arg() {
+        // Test default
+        let args = vec!["fleabox".to_string()];
+        assert_eq!(parse_auth_arg(&args).unwrap(), AuthType::Pam);
+
+        // Test space variant
+        let args = vec!["fleabox".to_string(), "--auth".to_string(), "config".to_string()];
+        assert_eq!(parse_auth_arg(&args).unwrap(), AuthType::Config);
+
+        let args = vec!["fleabox".to_string(), "--auth".to_string(), "none".to_string()];
+        assert_eq!(parse_auth_arg(&args).unwrap(), AuthType::None);
+
+        // Test equals variant
+        let args = vec!["fleabox".to_string(), "--auth=config".to_string()];
+        assert_eq!(parse_auth_arg(&args).unwrap(), AuthType::Config);
+
+        let args = vec!["fleabox".to_string(), "--auth=none".to_string()];
+        assert_eq!(parse_auth_arg(&args).unwrap(), AuthType::None);
+
+        // Test invalid
+        let args = vec!["fleabox".to_string(), "--auth".to_string(), "invalid".to_string()];
+        assert!(parse_auth_arg(&args).is_err());
+
+        let args = vec!["fleabox".to_string(), "--auth=invalid".to_string()];
+        assert!(parse_auth_arg(&args).is_err());
+    }
+
+    #[test]
+    fn test_parse_port_arg() {
+        // Test default
+        let args = vec!["fleabox".to_string()];
+        assert_eq!(parse_port_arg(&args).unwrap(), 3000);
+
+        // Test space variant
+        let args = vec!["fleabox".to_string(), "--port".to_string(), "8080".to_string()];
+        assert_eq!(parse_port_arg(&args).unwrap(), 8080);
+
+        // Test equals variant
+        let args = vec!["fleabox".to_string(), "--port=9090".to_string()];
+        assert_eq!(parse_port_arg(&args).unwrap(), 9090);
+
+        // Test invalid
+        let args = vec!["fleabox".to_string(), "--port".to_string(), "not_a_number".to_string()];
+        assert!(parse_port_arg(&args).is_err());
+
+        let args = vec!["fleabox".to_string(), "--port=not_a_number".to_string()];
+        assert!(parse_port_arg(&args).is_err());
     }
 }
