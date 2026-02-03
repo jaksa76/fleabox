@@ -365,6 +365,13 @@ fn get_current_user() -> Option<String> {
     }
 }
 
+// Get current process's UID and GID
+fn get_current_uid_gid() -> (u32, u32) {
+    unsafe {
+        (libc::getuid(), libc::getgid())
+    }
+}
+
 // Authenticate user with PAM
 // PAM constants and types for dynamic loading
 const PAM_SUCCESS: c_int = 0;
@@ -598,9 +605,12 @@ async fn public_page_auth_middleware(
         // In dev mode, fallback to current user if no header
         if state.dev_mode {
              if let Some(username) = get_current_user() {
-                 let (home_dir, uid, gid) = get_user_info(&username)
-                     .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username)), 0, 0));
+                 let home_dir = get_user_home(&username)
+                     .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
                  let data_dir = home_dir.join(".local/share/fleabox");
+                 
+                 // In dev mode, use current process's uid/gid (don't chown files)
+                 let (uid, gid) = get_current_uid_gid();
                  
                  let token = Uuid::new_v4().to_string();
                  let token_info = TokenInfo {
@@ -1021,9 +1031,12 @@ async fn token_auth_middleware(
             if let Some(username) = get_current_user() {
                  let path = req.uri().path().to_string();
                  if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
-                     let (home_dir, uid, gid) = get_user_info(&username)
-                         .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username)), 0, 0));
+                     let home_dir = get_user_home(&username)
+                         .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
                      let data_dir = home_dir.join(".local/share/fleabox");
+                     
+                     // In dev mode, use current process's uid/gid (don't chown files)
+                     let (uid, gid) = get_current_uid_gid();
 
                      req.extensions_mut().insert(username);
                      req.extensions_mut().insert(app_id.to_string());
