@@ -66,6 +66,8 @@ struct TokenInfo {
     app: String,
     expiry: SystemTime,
     data_dir: PathBuf,
+    uid: u32,
+    gid: u32,
 }
 
 impl TokenInfo {
@@ -144,10 +146,12 @@ struct LoginQuery {
 #[derive(Clone)]
 struct UserInfo {
     home_dir: PathBuf,
+    uid: u32,
+    gid: u32,
 }
 
-// Get user home directory via getpwnam_r (thread-safe)
-fn get_user_home(username: &str) -> Option<PathBuf> {
+// Get user info (home, uid, gid) via getpwnam_r (thread-safe)
+fn get_user_info(username: &str) -> Option<(PathBuf, u32, u32)> {
     unsafe {
         let c_username = CString::new(username).ok()?;
         let mut pwd: libc::passwd = std::mem::zeroed();
@@ -171,7 +175,50 @@ fn get_user_home(username: &str) -> Option<PathBuf> {
         
         let home = CStr::from_ptr(pwd.pw_dir);
         let home_str = home.to_str().ok()?;
-        Some(PathBuf::from(home_str))
+        Some((PathBuf::from(home_str), pwd.pw_uid, pwd.pw_gid))
+    }
+}
+
+// Get user home directory via getpwnam_r (thread-safe)
+fn get_user_home(username: &str) -> Option<PathBuf> {
+    get_user_info(username).map(|(home, _, _)| home)
+}
+
+// Helper function to change ownership of a file or directory
+fn chown_path(path: &StdPath, uid: u32, gid: u32) -> std::io::Result<()> {
+    let c_path = CString::new(path.to_str().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid path")
+    })?)
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid path"))?;
+    
+    let result = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
+    
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    
+    Ok(())
+}
+
+// Helper function to set ownership on a newly created directory hierarchy
+// Sets ownership from the deepest (most nested) directory up to base_dir (exclusive)
+fn chown_created_dirs(target_dir: &StdPath, base_dir: &StdPath, uid: u32, gid: u32) {
+    let mut dirs_to_chown = Vec::new();
+    let mut current = target_dir;
+    
+    // Collect directories from target up to (but not including) base
+    while current != base_dir {
+        if let Some(parent) = current.parent() {
+            dirs_to_chown.push(current);
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    
+    // Change ownership from deepest to shallowest
+    for dir in dirs_to_chown.iter().rev() {
+        let _ = chown_path(dir, uid, gid);
     }
 }
 
@@ -521,8 +568,8 @@ async fn public_page_auth_middleware(
                 if get_user_from_header(username_str).is_ok() {
                     // Create auto-login token for this user
                     // For reverse proxy auth, try to get system home dir, fallback to /home/{username}
-                    let home_dir = get_user_home(username_str)
-                        .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username_str)));
+                    let (home_dir, uid, gid) = get_user_info(username_str)
+                        .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username_str)), 0, 0));
                     let data_dir = home_dir.join(".local/share/fleabox");
                     
                     let token = Uuid::new_v4().to_string();
@@ -531,6 +578,8 @@ async fn public_page_auth_middleware(
                         app: "*".to_string(),
                         expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
                         data_dir,
+                        uid,
+                        gid,
                     };
                     
                     {
@@ -549,8 +598,8 @@ async fn public_page_auth_middleware(
         // In dev mode, fallback to current user if no header
         if state.dev_mode {
              if let Some(username) = get_current_user() {
-                 let home_dir = get_user_home(&username)
-                     .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
+                 let (home_dir, uid, gid) = get_user_info(&username)
+                     .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username)), 0, 0));
                  let data_dir = home_dir.join(".local/share/fleabox");
                  
                  let token = Uuid::new_v4().to_string();
@@ -559,6 +608,8 @@ async fn public_page_auth_middleware(
                      app: "*".to_string(),
                      expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
                      data_dir,
+                     uid,
+                     gid,
                  };
                  
                  {
@@ -876,15 +927,15 @@ async fn login_handler(
         .map_err(|_| ErrorResponse::new("bad_request", Some("Invalid UTF-8 in password".to_string())))?;
     
     // Authenticate based on auth type and get data directory
-    let data_dir = match state.auth_type {
+    let (data_dir, uid, gid) = match state.auth_type {
         AuthType::Pam => {
             authenticate_with_pam(&login_req.username, &password)
                 .map_err(|e| ErrorResponse::new("unauthorized", Some(format!("Authentication failed: {}", e))))?;
             
-            // Verify user exists on the system and get home dir
-            let home = get_user_home(&login_req.username)
+            // Verify user exists on the system and get home dir, uid, gid
+            let (home, uid, gid) = get_user_info(&login_req.username)
                 .ok_or_else(|| ErrorResponse::new("unauthorized", Some("User not found".to_string())))?;
-            home.join(".local/share/fleabox")
+            (home.join(".local/share/fleabox"), uid, gid)
         }
         AuthType::Config => {
             let config = state.config.as_ref()
@@ -892,7 +943,12 @@ async fn login_handler(
             
             let data_dir_str = authenticate_with_config(config, &login_req.username, &password)
                 .map_err(|e| ErrorResponse::new("unauthorized", Some(e)))?;
-            PathBuf::from(data_dir_str)
+            
+            // For config-based auth, try to get uid/gid from system user, fallback to 0:0
+            let (uid, gid) = get_user_info(&login_req.username)
+                .map(|(_, uid, gid)| (uid, gid))
+                .unwrap_or((0, 0));
+            (PathBuf::from(data_dir_str), uid, gid)
         }
         AuthType::None => {
             return Err(ErrorResponse::new("bad_request", Some("Login not available with header-based authentication".to_string())));
@@ -906,6 +962,8 @@ async fn login_handler(
         app: "*".to_string(), // Wildcard for root authentication
         expiry: SystemTime::now() + Duration::from_secs(8 * 3600),
         data_dir,
+        uid,
+        gid,
     };
     
     // Store token
@@ -944,14 +1002,14 @@ async fn token_auth_middleware(
                         let username_owned = username_str.to_string();
                         let app_id_owned = app_id.to_string();
                         
-                        let home_dir = get_user_home(username_str)
-                            .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username_str)));
+                        let (home_dir, uid, gid) = get_user_info(username_str)
+                            .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username_str)), 0, 0));
                         let data_dir = home_dir.join(".local/share/fleabox");
                         
                         // Add user and app info to request extensions
                         req.extensions_mut().insert(username_owned);
                         req.extensions_mut().insert(app_id_owned);
-                        req.extensions_mut().insert(UserInfo { home_dir: data_dir });
+                        req.extensions_mut().insert(UserInfo { home_dir: data_dir, uid, gid });
                         return Ok(next.run(req).await);
                     }
                 }
@@ -963,13 +1021,13 @@ async fn token_auth_middleware(
             if let Some(username) = get_current_user() {
                  let path = req.uri().path().to_string();
                  if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
-                     let home_dir = get_user_home(&username)
-                         .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
+                     let (home_dir, uid, gid) = get_user_info(&username)
+                         .unwrap_or_else(|| (PathBuf::from(format!("/home/{}", username)), 0, 0));
                      let data_dir = home_dir.join(".local/share/fleabox");
 
                      req.extensions_mut().insert(username);
                      req.extensions_mut().insert(app_id.to_string());
-                     req.extensions_mut().insert(UserInfo { home_dir: data_dir });
+                     req.extensions_mut().insert(UserInfo { home_dir: data_dir, uid, gid });
                      return Ok(next.run(req).await);
                  }
             }
@@ -1019,8 +1077,12 @@ async fn token_auth_middleware(
         ));
     }
     
-    // Store user info in request extensions (use data_dir from token)
-    req.extensions_mut().insert(UserInfo { home_dir: token_info.data_dir });
+    // Store user info in request extensions (use data_dir, uid, gid from token)
+    req.extensions_mut().insert(UserInfo { 
+        home_dir: token_info.data_dir,
+        uid: token_info.uid,
+        gid: token_info.gid,
+    });
     
     Ok(next.run(req).await)
 }
@@ -1130,7 +1192,8 @@ async fn api_put_data(
     let user_info = req
         .extensions()
         .get::<UserInfo>()
-        .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
+        .ok_or_else(|| ErrorResponse::new("unauthorized", None))?
+        .clone();
 
     let data_root = user_info
         .home_dir
@@ -1142,6 +1205,9 @@ async fn api_put_data(
         create_dir_all(&data_root)
             .await
             .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create data root".to_string())))?;
+        
+        // Set ownership on created directories
+        chown_created_dirs(&data_root, &user_info.home_dir, user_info.uid, user_info.gid);
     }
 
     let resolved_path = validate_and_resolve_path(&data_root, &path)?;
@@ -1152,6 +1218,9 @@ async fn api_put_data(
             create_dir_all(parent)
                 .await
                 .map_err(|_| ErrorResponse::new("internal_error", Some("Failed to create parent directory".to_string())))?;
+            
+            // Set ownership on created parent directories
+            chown_created_dirs(parent, &user_info.home_dir, user_info.uid, user_info.gid);
         }
     }
 
@@ -1211,6 +1280,12 @@ async fn api_put_data(
     }
 
     drop(temp_file);
+    
+    // Set ownership on temp file before renaming
+    if let Err(_) = chown_path(&temp_path, user_info.uid, user_info.gid) {
+        cleanup_temp().await;
+        return Err(ErrorResponse::new("internal_error", Some("Failed to set file ownership".to_string())));
+    }
 
     if let Err(_) = tokio::fs::rename(&temp_path, &resolved_path).await {
         cleanup_temp().await;
