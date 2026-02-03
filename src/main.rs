@@ -216,8 +216,8 @@ fn chown_created_dirs(target_dir: &StdPath, base_dir: &StdPath, uid: u32, gid: u
         }
     }
     
-    // Change ownership from deepest to shallowest
-    for dir in dirs_to_chown.iter().rev() {
+    // Change ownership (already in correct order: deepest to shallowest)
+    for dir in dirs_to_chown.iter() {
         let _ = chown_path(dir, uid, gid);
     }
 }
@@ -1282,7 +1282,8 @@ async fn api_put_data(
     drop(temp_file);
     
     // Set ownership on temp file before renaming
-    if let Err(_) = chown_path(&temp_path, user_info.uid, user_info.gid) {
+    if let Err(e) = chown_path(&temp_path, user_info.uid, user_info.gid) {
+        eprintln!("Failed to chown {}: {}", temp_path.display(), e);
         cleanup_temp().await;
         return Err(ErrorResponse::new("internal_error", Some("Failed to set file ownership".to_string())));
     }
