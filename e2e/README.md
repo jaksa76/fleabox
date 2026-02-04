@@ -29,6 +29,14 @@ npm run test:app
 npm run test:auth
 ```
 
+Some auth tests include ownership assertions (e.g. verifying files are owned by the authenticated user). Those checks require the Fleabox server to run as root and will be skipped when the test runner is not root.
+
+To run the auth suite with root privileges (so ownership checks can run):
+
+```bash
+sudo -E npm run test:auth
+```
+
 ### Debug tests interactively:
 ```bash
 npm run test:debug

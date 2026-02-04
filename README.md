@@ -58,7 +58,6 @@ sudo fleabox --auth pam
 
 Data is stored in each user's home directory at `~/.local/share/fleabox/<app-id>/data/`.
 
-
 #### 2. Config File Authentication
 
 Uses a JSON configuration file to define users, passwords, and data directories. This mode does not require PAM.
@@ -142,6 +141,13 @@ End-to-end tests:
 cd e2e
 npm install
 npm test
+```
+
+If you want to run the root-only ownership checks in the auth e2e suite, run the auth tests as root (the suite will otherwise skip those checks):
+
+```bash
+cd e2e
+sudo -E npm run test:auth
 ```
 
 You can run authentication tests separately:
