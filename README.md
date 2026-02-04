@@ -156,6 +156,34 @@ You can run authentication tests separately:
 npm run test:auth
 ```
 
+### Releasing
+
+There is a helper script that automates the common local release steps (version bump in `Cargo.toml`, tests/build, git commit + tag, and optional dist artifact packaging):
+
+```bash
+./scripts/release.sh 0.3.0
+```
+
+To preview what it will do without changing anything:
+
+```bash
+./scripts/release.sh 0.3.0 --dry-run
+```
+
+See `./scripts/release.sh --help` for options like `--e2e`, `--push`, and `--draft`.
+
+The script publishes a GitHub Release and uploads the `fleabox` executable (uncompressed). Authenticate once with:
+
+```bash
+gh auth login
+```
+
+Then run:
+
+```bash
+./scripts/release.sh 0.3.0
+```
+
 ### Development Mode
 
 Development mode is useful for testing apps. Dev mode bypasses authentication and uses the current user running the process. This makes it easy to develop and test apps locally without setting up authentication.
