@@ -3,6 +3,7 @@ mod cli;
 mod error;
 mod fs_utils;
 mod private_data;
+mod public_data;
 mod static_pages;
 mod user;
 
@@ -153,6 +154,12 @@ async fn main() {
             "/api/:app_id/data/*path",
             delete(private_data::api_delete_data),
         )
+        .route("/api/:app_id/public/*path", get(public_data::api_get_public_data))
+        .route("/api/:app_id/public/*path", put(public_data::api_put_public_data))
+        .route(
+            "/api/:app_id/public/*path",
+            delete(public_data::api_delete_public_data),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::token_auth_middleware,
@@ -171,6 +178,7 @@ async fn main() {
         .with_state(state.clone());
 
     let app = Router::new()
+        .route("/:app_id/~:user_id/*path", get(public_data::api_get_user_public_data))
         .merge(api_routes)
         .merge(protected_routes)
         .route("/login", get(auth::login_page))

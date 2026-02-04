@@ -680,6 +680,30 @@ pub(crate) async fn token_auth_middleware(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ErrorResponse> {
+    // In dev mode, always use current user regardless of headers
+    if state.dev_mode {
+        if let Some(username) = get_current_user() {
+            let path = req.uri().path().to_string();
+            if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
+                let home_dir = get_user_home(&username)
+                    .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
+                let data_dir = home_dir.join(".local/share/fleabox");
+
+                // In dev mode, use current process's uid/gid (don't chown files)
+                let (uid, gid) = get_current_uid_gid();
+
+                req.extensions_mut().insert(username);
+                req.extensions_mut().insert(app_id.to_string());
+                req.extensions_mut().insert(UserInfo {
+                    home_dir: data_dir,
+                    uid,
+                    gid,
+                });
+                return Ok(next.run(req).await);
+            }
+        }
+    }
+
     // For reverse proxy auth, check X-Remote-User header
     if state.auth_type == AuthType::None {
         if let Some(username) = req.headers().get("X-Remote-User") {
@@ -709,30 +733,6 @@ pub(crate) async fn token_auth_middleware(
                         });
                         return Ok(next.run(req).await);
                     }
-                }
-            }
-        }
-
-        // In dev mode, fallback to current user if no header
-        if state.dev_mode {
-            if let Some(username) = get_current_user() {
-                let path = req.uri().path().to_string();
-                if let Some(app_id) = path.strip_prefix("/api/").and_then(|p| p.split('/').next()) {
-                    let home_dir = get_user_home(&username)
-                        .unwrap_or_else(|| PathBuf::from(format!("/home/{}", username)));
-                    let data_dir = home_dir.join(".local/share/fleabox");
-
-                    // In dev mode, use current process's uid/gid (don't chown files)
-                    let (uid, gid) = get_current_uid_gid();
-
-                    req.extensions_mut().insert(username);
-                    req.extensions_mut().insert(app_id.to_string());
-                    req.extensions_mut().insert(UserInfo {
-                        home_dir: data_dir,
-                        uid,
-                        gid,
-                    });
-                    return Ok(next.run(req).await);
                 }
             }
         }

@@ -26,6 +26,7 @@ impl IntoResponse for ErrorResponse {
         let status = match self.error.as_str() {
             "bad_request" => StatusCode::BAD_REQUEST,
             "unauthorized" => StatusCode::UNAUTHORIZED,
+            "forbidden" => StatusCode::FORBIDDEN,
             "not_found" => StatusCode::NOT_FOUND,
             "conflict" => StatusCode::CONFLICT,
             "payload_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
