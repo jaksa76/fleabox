@@ -1,6 +1,6 @@
 {
   "name": "Fleabox Rust Dev Container",
-  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bullseye",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/schlich/devcontainer-features/playwright:0": {}
