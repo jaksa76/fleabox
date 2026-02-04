@@ -16,12 +16,8 @@ Options:
   --allow-dirty       Allow releasing with uncommitted changes.
   --skip-tests        Skip `cargo test`.
   --e2e               Run Playwright e2e tests (requires `npm install` in ./e2e).
-  --skip-build        Skip `cargo build --release`.
   --no-tag            Do not create a git tag.
-  --push              Push the release commit and tag to `origin`.
   --draft             Create the GitHub Release as a draft.
-  --dist              Create a tar.gz artifact in ./dist (default).
-  --no-dist           Do not create a dist artifact.
   -h, --help          Show this help.
 
 Examples:
@@ -67,11 +63,8 @@ DRY_RUN=0
 ALLOW_DIRTY=0
 SKIP_TESTS=0
 RUN_E2E=0
-SKIP_BUILD=0
 NO_TAG=0
-DO_PUSH=1
 GITHUB_DRAFT=0
-DO_DIST=1
 
 # First positional is version, then options.
 VERSION="$1"
@@ -83,12 +76,8 @@ while [[ ${#} -gt 0 ]]; do
     --allow-dirty) ALLOW_DIRTY=1 ;;
     --skip-tests) SKIP_TESTS=1 ;;
     --e2e) RUN_E2E=1 ;;
-    --skip-build) SKIP_BUILD=1 ;;
     --no-tag) NO_TAG=1 ;;
-    --push) DO_PUSH=1 ;;
     --draft) GITHUB_DRAFT=1 ;;
-    --dist) DO_DIST=1 ;;
-    --no-dist) DO_DIST=0 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1" ;;
   esac
@@ -205,9 +194,8 @@ fi
 if [[ "$SKIP_TESTS" != "1" ]]; then
   run cargo test
 fi
-if [[ "$SKIP_BUILD" != "1" ]]; then
-  run cargo build --release
-fi
+
+run cargo build --release
 
 if [[ "$RUN_E2E" == "1" ]]; then
   if [[ -f e2e/package.json ]]; then
@@ -217,25 +205,7 @@ if [[ "$RUN_E2E" == "1" ]]; then
   fi
 fi
 
-# 3) Create dist artifact.
-if [[ "$DO_DIST" == "1" ]]; then
-  HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
-  [[ -n "$HOST_TRIPLE" ]] || die "Could not detect rust host triple"
-  ARTIFACT_DIR="$REPO_ROOT/dist"
-  ARTIFACT_NAME="fleabox-v${VERSION}-${HOST_TRIPLE}.tar.gz"
-  BIN_PATH="$REPO_ROOT/target/release/fleabox"
-  [[ -x "$BIN_PATH" ]] || die "Release binary not found at $BIN_PATH (run without --skip-build)"
-
-  run mkdir -p "$ARTIFACT_DIR"
-  # Package README + binary (and optionally config example) without committing artifacts.
-  run_bash "tar -C '$REPO_ROOT' -czf '$ARTIFACT_DIR/$ARTIFACT_NAME' \
-    README.md \
-    config.example.json \
-    -C 'target/release' fleabox"
-  say "Created dist/$ARTIFACT_NAME"
-fi
-
-# 4) Commit + tag.
+# 3) Commit + tag.
 run git add Cargo.toml
 if [[ -f Cargo.lock ]]; then
   run git add Cargo.lock || true
@@ -253,20 +223,16 @@ if [[ "$NO_TAG" != "1" ]]; then
   run git tag -a "v$VERSION" -m "v$VERSION"
 fi
 
-if [[ "$DO_PUSH" == "1" ]]; then
-  run git push origin HEAD
-  run git push origin "v$VERSION"
-fi
+run git push origin HEAD
+run git push origin "v$VERSION"
 
-# 5) GitHub Release + upload raw binary.
+# 4) GitHub Release + upload raw binary.
 BIN_PATH="$REPO_ROOT/target/release/fleabox"
-HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
-[[ -n "$HOST_TRIPLE" ]] || die "Could not detect rust host triple"
 
 if [[ "$DRY_RUN" == "1" ]]; then
   say "+ gh auth status"
   say "+ gh release view v$VERSION"
-  say "+ gh release create v$VERSION --title v$VERSION --generate-notes ${GITHUB_DRAFT:+--draft} $BIN_PATH#fleabox-${HOST_TRIPLE}"
+  say "+ gh release create v$VERSION --title v$VERSION --generate-notes ${GITHUB_DRAFT:+--draft} $BIN_PATH#fleabox"
 else
   [[ -x "$BIN_PATH" ]] || die "Release binary not found at $BIN_PATH (run without --skip-build)"
 
@@ -276,7 +242,7 @@ else
     die "GitHub Release v$VERSION already exists"
   fi
 
-  ASSET_SPEC="$BIN_PATH#fleabox-${HOST_TRIPLE}"
+  ASSET_SPEC="$BIN_PATH#fleabox"
   if [[ "$GITHUB_DRAFT" == "1" ]]; then
     run gh release create "v$VERSION" \
       --draft \
