@@ -355,7 +355,15 @@ pub(crate) async fn api_get_user_public_data(
         ));
     }
 
-    let resolved_path = validate_and_resolve_path(&public_root, &path)?;
+    // Normalize path - treat empty path as root directory
+    let normalized_path = if path.is_empty() || path == "/" {
+        "".to_string()
+    } else {
+        // Remove trailing slash if present
+        path.trim_end_matches('/').to_string()
+    };
+
+    let resolved_path = validate_and_resolve_path(&public_root, &normalized_path)?;
 
     if !resolved_path.exists() {
         return Err(ErrorResponse::new(
@@ -424,5 +432,77 @@ pub(crate) async fn api_get_user_public_data(
             "internal_error",
             Some("Unsupported file type".to_string()),
         ))
+    }
+}
+
+// GET /<app_id>/~<user_id>/ and /<app_id>/~<user_id> - Public read-only access to root
+pub(crate) async fn api_get_user_public_data_root(
+    Path((app_id, user_id)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Response, ErrorResponse> {
+    // Validate user_id to prevent injection attacks
+    validate_user_id(&user_id)?;
+
+    // Resolve user's data directory
+    let base_dir = resolve_user_data_dir(&user_id, &state.auth_type, &state.config, state.dev_mode)?;
+
+    let public_root = base_dir.join("public").join(&app_id);
+
+    // If public root doesn't exist, return 404
+    if !public_root.exists() {
+        return Err(ErrorResponse::new(
+            "not_found",
+            Some("Public folder does not exist".to_string()),
+        ));
+    }
+
+    // Check if index.html exists in the root directory
+    let index_path = public_root.join("index.html");
+    if index_path.exists() && index_path.is_file() {
+        // Serve index.html
+        let mut file = File::open(&index_path).await.map_err(|_| {
+            ErrorResponse::new("internal_error", Some("Failed to open file".to_string()))
+        })?;
+
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).await.map_err(|_| {
+            ErrorResponse::new("internal_error", Some("Failed to read file".to_string()))
+        })?;
+
+        Ok((
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html".to_string())],
+            contents,
+        )
+            .into_response())
+    } else {
+        // No index.html - return 403
+        Err(ErrorResponse::new(
+            "forbidden",
+            Some("Directory listing not allowed".to_string()),
+        ))
+    }
+}
+
+pub(crate) async fn redirect_to_public_folder(
+    Path((app_id, user_id)): Path<(String, String)>
+) -> impl IntoResponse {
+    axum::response::Redirect::to(&format!("/{}/~{}/", app_id, user_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_redirect_to_public_folder() {
+        let response = redirect_to_public_folder(
+            Path(("myapp".to_string(), "user123".to_string()))
+        ).await.into_response();
+        
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        
+        let location = response.headers().get("location").unwrap();
+        assert_eq!(location, "/myapp/~user123/");
     }
 }

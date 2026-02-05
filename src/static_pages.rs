@@ -7,7 +7,7 @@ use axum::{
 use axum_extra::extract::CookieJar;
 use std::{fs, path::Path as StdPath};
 
-pub(crate) async fn list_directories(State(state): State<AppState>) -> Html<String> {
+pub(crate) async fn homepage(State(state): State<AppState>) -> Html<String> {
     let path = &state.apps_dir;
     let mut directories = Vec::new();
 
@@ -180,5 +180,23 @@ pub(crate) async fn serve_app_index(
         )
             .into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "App not found").into_response(),
+    }
+}
+
+pub(crate) async fn redirect_to_app(Path(app): Path<String>) -> impl IntoResponse {
+    axum::response::Redirect::to(&format!("/{}/", app))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_redirect_to_app() {
+        let response = redirect_to_app(Path("myapp".to_string())).await.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        
+        let location = response.headers().get("location").unwrap();
+        assert_eq!(location, "/myapp/");
     }
 }

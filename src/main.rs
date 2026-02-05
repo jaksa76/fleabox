@@ -166,10 +166,10 @@ async fn main() {
         ))
         .with_state(state.clone());
 
-    let protected_routes = Router::new()
-        .route("/", get(static_pages::list_directories))
+    let static_assets_routes = Router::new()
+        .route("/", get(static_pages::homepage))
         .route("/:app/", get(static_pages::serve_app_index))
-        .route("/:app", get(static_pages::serve_app_index))
+        .route("/:app", get(static_pages::redirect_to_app))
         .route("/:app/*file", get(static_pages::serve_app_file))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -177,12 +177,18 @@ async fn main() {
         ))
         .with_state(state.clone());
 
-    let app = Router::new()
+    let public_data_routes = Router::new()
         .route("/:app_id/~:user_id/*path", get(public_data::api_get_user_public_data))
-        .merge(api_routes)
-        .merge(protected_routes)
+        .route("/:app_id/~:user_id/", get(public_data::api_get_user_public_data_root))
+        .route("/:app_id/~:user_id", get(public_data::redirect_to_public_folder))
+        .with_state(state.clone());
+
+    let app = Router::new()
         .route("/login", get(auth::login_page))
         .route("/login", post(auth::login_handler))
+        .merge(api_routes)
+        .merge(static_assets_routes)
+        .merge(public_data_routes)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))

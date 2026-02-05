@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,282 +11,285 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            min-height: 100vh;
-            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
         }
-        
+
         .container {
             max-width: 900px;
             margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
+            padding: 2rem;
         }
-        
+
         header {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
         }
-        
-        h1 {
-            font-size: 36px;
-            margin-bottom: 10px;
+
+        header h1 {
+            color: #2c3e50;
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
         }
-        
+
         .subtitle {
-            opacity: 0.9;
-            font-size: 14px;
+            color: #7f8c8d;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
         }
 
         .public-url {
-            margin-top: 15px;
-            padding: 10px 15px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 6px;
-            font-size: 13px;
-            word-break: break-all;
-        }
-
-        .public-url strong {
-            display: block;
-            margin-bottom: 5px;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #ecf0f1;
+            border-radius: 4px;
+            font-size: 0.9rem;
         }
 
         .public-url a {
-            color: white;
+            color: #3498db;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .public-url a:hover {
             text-decoration: underline;
         }
-        
-        .tabs {
-            display: flex;
-            background: #f5f5f5;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .tab {
-            flex: 1;
-            padding: 15px;
-            text-align: center;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            color: #666;
-            transition: all 0.3s;
-        }
-        
-        .tab.active {
-            background: white;
-            color: #f5576c;
-            border-bottom: 2px solid #f5576c;
-        }
-        
+
         .content {
-            padding: 30px;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-        
-        .tab-content {
+
+        .error, .success {
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
             display: none;
         }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
+
         .error {
             background: #fee;
             color: #c33;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            display: none;
+            border: 1px solid #fcc;
         }
-        
+
         .success {
             background: #efe;
             color: #3c3;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            display: none;
+            border: 1px solid #cfc;
         }
-        
-        .form-group {
-            margin-bottom: 20px;
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #7f8c8d;
         }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: #7f8c8d;
         }
-        
-        input[type="text"],
-        textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            font-family: inherit;
-            transition: border-color 0.3s;
+
+        .empty-state h3 {
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
         }
-        
-        input[type="text"]:focus,
-        textarea:focus {
-            outline: none;
-            border-color: #f5576c;
-        }
-        
-        textarea {
-            min-height: 200px;
-            resize: vertical;
-        }
-        
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            margin-left: 10px;
-        }
-        
-        .btn-danger {
-            background: #dc3545;
-        }
-        
+
         .posts-list {
-            display: grid;
-            gap: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
         }
-        
+
         .post-item {
-            border: 2px solid #eee;
-            border-radius: 8px;
-            padding: 20px;
-            transition: all 0.3s;
+            border: 1px solid #e0e0e0;
+            padding: 1.5rem;
+            border-radius: 6px;
+            transition: box-shadow 0.2s;
         }
-        
+
         .post-item:hover {
-            border-color: #f5576c;
-            box-shadow: 0 4px 12px rgba(245, 87, 108, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
-        
+
         .post-header {
             display: flex;
             justify-content: space-between;
             align-items: start;
-            margin-bottom: 10px;
+            margin-bottom: 1rem;
+            gap: 1rem;
         }
-        
+
         .post-title {
-            font-size: 20px;
+            font-size: 1.25rem;
             font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
+            color: #2c3e50;
+            margin-bottom: 0.25rem;
         }
-        
+
         .post-date {
-            font-size: 12px;
-            color: #999;
+            font-size: 0.85rem;
+            color: #95a5a6;
         }
-        
+
         .post-status {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
+            white-space: nowrap;
         }
-        
+
         .status-published {
             background: #d4edda;
             color: #155724;
         }
-        
+
         .status-draft {
             background: #fff3cd;
             color: #856404;
         }
-        
+
         .post-excerpt {
-            color: #666;
-            margin-bottom: 15px;
-            line-height: 1.6;
+            color: #555;
+            margin-bottom: 1rem;
+            line-height: 1.5;
         }
-        
+
         .post-actions {
             display: flex;
-            gap: 10px;
+            gap: 0.5rem;
         }
-        
-        .post-actions button {
-            padding: 8px 16px;
-            font-size: 13px;
+
+        .actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e0e0e0;
         }
-        
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
+
+        button {
+            padding: 0.6rem 1.25rem;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-weight: 500;
         }
-        
-        .empty-state h3 {
-            font-size: 20px;
-            margin-bottom: 10px;
+
+        button:hover {
+            background: #2980b9;
         }
-        
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #999;
+
+        .btn-secondary {
+            background: #95a5a6;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        #editor {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            header, .content {
+                padding: 1.5rem;
+            }
+
+            .post-header {
+                flex-direction: column;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <header>
-            <h1>📝 My Blog</h1>
+            <h1>📝 Blogging Platform</h1>
             <div class="subtitle">Powered by Fleabox - Showcase for Public Folders</div>
             <div class="public-url" id="publicUrl" style="display: none;">
                 <strong>Your public blog URL:</strong>
@@ -293,17 +297,12 @@
             </div>
         </header>
 
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('posts')">My Posts</button>
-            <button class="tab" onclick="switchTab('new')">New Post</button>
-        </div>
-
         <div class="content">
             <div class="error" id="error"></div>
             <div class="success" id="success"></div>
 
-            <!-- Posts List Tab -->
-            <div class="tab-content active" id="postsTab">
+            <!-- Posts List -->
+            <div id="posts">
                 <div class="loading" id="loading">Loading posts...</div>
                 <div class="posts-list" id="postsList"></div>
                 <div class="empty-state" id="emptyState" style="display: none;">
@@ -312,8 +311,13 @@
                 </div>
             </div>
 
-            <!-- New Post Tab -->
-            <div class="tab-content" id="newTab">
+            <div class="actions">
+                <button onclick="showEditor()">New Post</button>
+                <button onclick="publishBlog()">Publish Blog</button>
+            </div>
+
+            <!-- New Post Dialog -->
+            <div id="editor" style="display: none;">
                 <form id="postForm" onsubmit="savePost(event)">
                     <div class="form-group">
                         <label for="postTitle">Title *</label>
@@ -322,14 +326,8 @@
 
                     <div class="form-group">
                         <label for="postContent">Content *</label>
-                        <textarea id="postContent" required placeholder="Write your blog post content here... (Markdown supported)"></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="publishPost" checked>
-                            <label for="publishPost" style="margin-bottom: 0;">Publish to public folder (make it publicly accessible)</label>
-                        </div>
+                        <textarea id="postContent" required
+                            placeholder="Write your blog post content here... (Markdown supported)"></textarea>
                     </div>
 
                     <div class="form-group">
@@ -346,30 +344,19 @@
         let currentEditId = null;
         let username = null;
 
-        // Get current username from login
-        async function getUsername() {
-            if (username) return username;
-            
-            // Try to extract from any API call or use a default
-            // In a real app, this would come from auth
-            try {
-                const response = await fetch(`${API_BASE}/data/.username`, {
-                    method: 'PUT',
-                    body: 'init'
-                });
-                
-                // For dev mode, we can use a default username
-                username = 'vscode'; // This will be the actual system username
-                return username;
-            } catch (error) {
-                username = 'vscode';
-                return username;
+        // Get current username from cookie
+        async function readUsername() {
+            const match = document.cookie.match(new RegExp('(^| )fleabox_username=([^;]+)'));
+            if (match) {
+                username = decodeURIComponent(match[2]);
+            } else {
+                username = "vscode";
             }
         }
 
         // Initialize on load
         window.addEventListener('load', async () => {
-            await getUsername();
+            await readUsername();
             loadPosts();
             updatePublicUrl();
         });
@@ -377,32 +364,11 @@
         function updatePublicUrl() {
             const publicUrlDiv = document.getElementById('publicUrl');
             const publicLink = document.getElementById('publicLink');
-            const url = `${window.location.origin}/blog/~${username}/`;
-            
+            const url = `${window.location.origin}/blog/~${username}`;
+
             publicLink.href = url;
             publicLink.textContent = url;
             publicUrlDiv.style.display = 'block';
-        }
-
-        function switchTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-            
-            if (tab === 'posts') {
-                document.querySelector('.tab:nth-child(1)').classList.add('active');
-                document.getElementById('postsTab').classList.add('active');
-                loadPosts();
-            } else {
-                document.querySelector('.tab:nth-child(2)').classList.add('active');
-                document.getElementById('newTab').classList.add('active');
-                if (currentEditId) {
-                    currentEditId = null;
-                    document.getElementById('postForm').reset();
-                    document.getElementById('publishPost').checked = true;
-                }
-            }
-            
-            hideMessages();
         }
 
         function showError(message) {
@@ -424,32 +390,40 @@
             document.getElementById('success').style.display = 'none';
         }
 
+        function showEditor() {
+            document.getElementById('editor').style.display = 'block';
+        }
+
+        function closeEditor() {
+            document.getElementById('editor').style.display = 'none';
+        }
+
         async function loadPosts() {
             const loading = document.getElementById('loading');
             const postsList = document.getElementById('postsList');
             const emptyState = document.getElementById('emptyState');
-            
+
             loading.style.display = 'block';
             postsList.innerHTML = '';
             emptyState.style.display = 'none';
-            
+
             try {
                 // Load posts from private data folder
                 const response = await fetch(`${API_BASE}/data/posts`);
-                
+
                 if (response.status === 404) {
                     loading.style.display = 'none';
                     emptyState.style.display = 'block';
                     return;
                 }
-                
+
                 if (!response.ok) {
                     throw new Error('Failed to load posts');
                 }
-                
+
                 const files = await response.json();
                 const posts = [];
-                
+
                 // Load each post
                 for (const file of files) {
                     if (file.type === 'file' && file.name.endsWith('.json')) {
@@ -461,22 +435,22 @@
                         }
                     }
                 }
-                
+
                 loading.style.display = 'none';
-                
+
                 if (posts.length === 0) {
                     emptyState.style.display = 'block';
                     return;
                 }
-                
+
                 // Sort by date (newest first)
                 posts.sort((a, b) => new Date(b.date) - new Date(a.date));
-                
+
                 posts.forEach(post => {
                     const postElement = createPostElement(post);
                     postsList.appendChild(postElement);
                 });
-                
+
             } catch (error) {
                 loading.style.display = 'none';
                 showError('Failed to load posts: ' + error.message);
@@ -486,14 +460,14 @@
         function createPostElement(post) {
             const div = document.createElement('div');
             div.className = 'post-item';
-            
+
             const excerpt = post.content.substring(0, 200) + (post.content.length > 200 ? '...' : '');
-            const date = new Date(post.date).toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
+            const date = new Date(post.date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
-            
+
             div.innerHTML = `
                 <div class="post-header">
                     <div>
@@ -507,12 +481,10 @@
                 <div class="post-excerpt">${escapeHtml(excerpt)}</div>
                 <div class="post-actions">
                     <button onclick="editPost('${post.id}')">Edit</button>
-                    ${post.published ? `<button onclick="viewPublic('${post.id}')">View Public</button>` : ''}
-                    ${post.published ? `<button onclick="unpublishPost('${post.id}')">Unpublish</button>` : `<button onclick="publishPost('${post.id}')">Publish</button>`}
                     <button class="btn-danger" onclick="deletePost('${post.id}')">Delete</button>
                 </div>
             `;
-            
+
             return div;
         }
 
@@ -524,218 +496,129 @@
 
         async function savePost(event) {
             event.preventDefault();
-            
+
             const title = document.getElementById('postTitle').value;
             const content = document.getElementById('postContent').value;
-            const shouldPublish = document.getElementById('publishPost').checked;
-            
+
             const post = {
                 title,
                 content,
                 date: new Date().toISOString(),
-                published: shouldPublish
+                published: false
             };
-            
+
             try {
                 const postId = currentEditId || generateId();
-                
+
                 // Save to private data folder
                 const response = await fetch(`${API_BASE}/data/posts/${postId}.json`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(post)
                 });
-                
+
                 if (!response.ok) {
                     throw new Error('Failed to save post');
                 }
-                
-                // If publishing, also save to public folder
-                if (shouldPublish) {
-                    await publishPostToPublic(postId, post);
-                } else if (currentEditId) {
-                    // If unpublishing an existing post, remove from public
-                    await unpublishPostFromPublic(postId);
-                }
-                
-                showSuccess(currentEditId ? 'Post updated successfully!' : 'Post created successfully!');
+
+                showSuccess(currentEditId ? 'Publish Blog to see changes!' : 'Post created successfully!');
                 document.getElementById('postForm').reset();
-                document.getElementById('publishPost').checked = true;
                 currentEditId = null;
-                
-                setTimeout(() => switchTab('posts'), 1000);
-                
+
+                loadPosts();
+
+                setTimeout(() => closeEditor(), 1000);
+
             } catch (error) {
                 showError('Failed to save post: ' + error.message);
             }
         }
 
-        async function publishPostToPublic(postId, post) {
+        async function publishPost(postId, post) {
+            console.log(`Publishing post: ${post.title}`);
             // Create a simple HTML page for the post
-            const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeHtml(post.title)}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-            line-height: 1.6;
-            color: #333;
-        }
-        h1 {
-            color: #f5576c;
-            margin-bottom: 10px;
-        }
-        .date {
-            color: #999;
-            font-size: 14px;
-            margin-bottom: 30px;
-        }
-        .content {
-            white-space: pre-wrap;
-        }
-        .back {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #eee;
-        }
-        .back a {
-            color: #f5576c;
-            text-decoration: none;
-        }
-    </style>
-</head>
-<body>
-    <h1>${escapeHtml(post.title)}</h1>
-    <div class="date">${new Date(post.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-    <div class="content">${escapeHtml(post.content)}</div>
-    <div class="back">
-        <a href="../">← Back to blog</a>
-    </div>
-</body>
-</html>`;
-            
+            let html = await (await fetch('templates/post.html')).text();
+            html = html.replace('$TITLE', escapeHtml(post.title));
+            html = html.replace('$DATE', new Date(post.date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }));
+            html = html.replace('$CONTENT', escapeHtml(post.content).replace(/\n/g, '<br>'));
+
             const response = await fetch(`${API_BASE}/public/${postId}.html`, {
                 method: 'PUT',
                 body: html
             });
-            
+
             if (!response.ok) {
                 throw new Error('Failed to publish post');
             }
-            
-            // Update index.html in public folder
-            await updatePublicIndex();
+
+            // mark post as published in private data folder
+            post.published = true;
+            await fetch(`${API_BASE}/data/posts/${postId}.json`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(post)
+            });
         }
 
-        async function unpublishPostFromPublic(postId) {
-            try {
-                await fetch(`${API_BASE}/public/${postId}.html`, {
-                    method: 'DELETE'
-                });
-                await updatePublicIndex();
-            } catch (error) {
-                console.error('Failed to unpublish:', error);
-            }
-        }
-
-        async function updatePublicIndex() {
-            // Load all published posts
+        async function publishBlog() {
+            console.log('Publishing blog...');
+            // Load all published posts from private folder
             const response = await fetch(`${API_BASE}/data/posts`);
             if (!response.ok) return;
-            
+
             const files = await response.json();
             const posts = [];
-            
+
             for (const file of files) {
                 if (file.type === 'file' && file.name.endsWith('.json')) {
                     const postResponse = await fetch(`${API_BASE}/data/posts/${file.name}`);
                     if (postResponse.ok) {
                         const post = await postResponse.json();
-                        if (post.published) {
-                            post.id = file.name.replace('.json', '');
-                            posts.push(post);
-                        }
+                        const postId = file.name.replace('.json', '');
+                        post.id = postId;
+                        posts.push(post);
+                        publishPost(postId, post);
                     }
                 }
             }
-            
+
             // Sort by date (newest first)
             posts.sort((a, b) => new Date(b.date) - new Date(a.date));
-            
-            // Generate index.html
-            const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Blog</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-            line-height: 1.6;
-            color: #333;
-        }
-        h1 {
-            color: #f5576c;
-            margin-bottom: 40px;
-        }
-        .post {
-            margin-bottom: 40px;
-            padding-bottom: 40px;
-            border-bottom: 1px solid #eee;
-        }
-        .post:last-child {
-            border-bottom: none;
-        }
-        .post h2 {
-            margin-bottom: 10px;
-        }
-        .post h2 a {
-            color: #333;
-            text-decoration: none;
-        }
-        .post h2 a:hover {
-            color: #f5576c;
-        }
-        .date {
-            color: #999;
-            font-size: 14px;
-            margin-bottom: 15px;
-        }
-        .excerpt {
-            color: #666;
-        }
-        .empty {
-            text-align: center;
-            color: #999;
-            padding: 60px 20px;
-        }
-    </style>
-</head>
-<body>
-    <h1>📝 My Blog</h1>
-    ${posts.length > 0 ? posts.map(post => `
-        <div class="post">
-            <h2><a href="${post.id}.html">${escapeHtml(post.title)}</a></h2>
-            <div class="date">${new Date(post.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-            <div class="excerpt">${escapeHtml(post.content.substring(0, 200))}${post.content.length > 200 ? '...' : ''}</div>
-        </div>
-    `).join('') : '<div class="empty">No posts yet.</div>'}
-</body>
-</html>`;
-            
-            await fetch(`${API_BASE}/public/index.html`, {
+
+            console.log('Generating index page...');
+            let html = await (await fetch('templates/index.html')).text();
+            if (posts.length === 0) {
+                html = html.replace('$POSTS', `
+                    <div class="empty">
+                        <h2>No published posts yet.</h2>
+                        <p>Please publish some posts to see them here.</p>
+                    </div>
+                    `);
+            } else {
+                html = html.replace('$POSTS', posts.map(post => {
+                    const date = new Date(post.date).toLocaleDateString();
+                    const excerpt = post.content.substring(0, 150) + (post.content.length > 150 ? '...' : '');
+                    console.log(`Adding post to index: ${post.title} (Published: ${post.published})`);
+                    return `
+                    <div class="post">
+                        <h2><a href="${post.id}.html">${escapeHtml(post.title)}</a></h2>
+                        <div class="date">${date}</div>
+                        <div class="excerpt">${escapeHtml(excerpt)}</div>
+                    </div>
+                    `;
+                }).join(''));
+            }
+            await fetch(`${API_BASE}/public/index.html`, { method: 'PUT', body: html });
+
+            console.log('Uploading styles...');
+            const css = await fetch('templates/styles.css').then(res => res.text());
+            await fetch(`${API_BASE}/public/styles.css`, {
                 method: 'PUT',
-                body: html
+                body: css
             });
         }
 
@@ -745,16 +628,16 @@
                 if (!response.ok) {
                     throw new Error('Failed to load post');
                 }
-                
+
                 const post = await response.json();
-                
+
                 document.getElementById('postTitle').value = post.title;
                 document.getElementById('postContent').value = post.content;
                 document.getElementById('publishPost').checked = post.published;
-                
+
                 currentEditId = postId;
-                switchTab('new');
-                
+
+                showEditor();
             } catch (error) {
                 showError('Failed to load post: ' + error.message);
             }
@@ -764,81 +647,33 @@
             if (!confirm('Are you sure you want to delete this post?')) {
                 return;
             }
-            
+
             try {
                 // Delete from private folder
                 await fetch(`${API_BASE}/data/posts/${postId}.json`, {
                     method: 'DELETE'
                 });
-                
-                // Delete from public folder if exists
+
+                // Delete from public folder
                 await fetch(`${API_BASE}/public/${postId}.html`, {
                     method: 'DELETE'
                 });
-                
-                await updatePublicIndex();
-                
-                showSuccess('Post deleted successfully!');
+
+                showSuccess('Post deleted successfully!\nPublish Blog to see changes!');
                 loadPosts();
-                
+
             } catch (error) {
                 showError('Failed to delete post: ' + error.message);
             }
-        }
-
-        async function publishPost(postId) {
-            try {
-                const response = await fetch(`${API_BASE}/data/posts/${postId}.json`);
-                const post = await response.json();
-                post.published = true;
-                
-                await fetch(`${API_BASE}/data/posts/${postId}.json`, {
-                    method: 'PUT',
-                    body: JSON.stringify(post)
-                });
-                
-                await publishPostToPublic(postId, post);
-                
-                showSuccess('Post published successfully!');
-                loadPosts();
-                
-            } catch (error) {
-                showError('Failed to publish post: ' + error.message);
-            }
-        }
-
-        async function unpublishPost(postId) {
-            try {
-                const response = await fetch(`${API_BASE}/data/posts/${postId}.json`);
-                const post = await response.json();
-                post.published = false;
-                
-                await fetch(`${API_BASE}/data/posts/${postId}.json`, {
-                    method: 'PUT',
-                    body: JSON.stringify(post)
-                });
-                
-                await unpublishPostFromPublic(postId);
-                
-                showSuccess('Post unpublished successfully!');
-                loadPosts();
-                
-            } catch (error) {
-                showError('Failed to unpublish post: ' + error.message);
-            }
-        }
-
-        function viewPublic(postId) {
-            window.open(`/blog/~${username}/${postId}.html`, '_blank');
         }
 
         function cancelEdit() {
             if (currentEditId) {
                 currentEditId = null;
                 document.getElementById('postForm').reset();
-                document.getElementById('publishPost').checked = true;
             }
-            switchTab('posts');
+            
+            closeEditor();
         }
 
         function generateId() {
@@ -846,4 +681,5 @@
         }
     </script>
 </body>
+
 </html>
