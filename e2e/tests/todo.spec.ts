@@ -3,8 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Todo App', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the todo app before each test
-    await page.goto('/todo');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/todo', { waitUntil: 'domcontentloaded' });
     
     // Clear all existing todos to ensure clean state
     await page.evaluate(() => {
@@ -16,11 +15,10 @@ test.describe('Todo App', () => {
     });
     
     // Reload to reflect the cleared state
-    await page.reload();
-    await page.waitForLoadState('networkidle');
+    await page.reload({ waitUntil: 'domcontentloaded' });
   });
 
-  test('should load the todo app', async ({ page }) => {
+  test('should load todo app with empty state', async ({ page }) => {
     // Check page title
     await expect(page).toHaveTitle(/Todo App/);
 
@@ -40,28 +38,21 @@ test.describe('Todo App', () => {
     // Check Add button is visible
     const addButton = page.locator('button:has-text("Add")');
     await expect(addButton).toBeVisible();
-  });
 
-  test('should show empty state when no todos exist', async ({ page }) => {
     // Check for empty state message
     const emptyState = page.locator('.empty-state');
     await expect(emptyState).toBeVisible();
     await expect(emptyState).toContainText('No todos yet');
   });
 
-  test('should add a new todo', async ({ page }) => {
+  test('should add a new todo by clicking Add or pressing Enter', async ({ page }) => {
     const todoText = 'Buy groceries';
 
-    // Enter todo text
+    // Enter todo text and click Add button
     await page.fill('#todoInput', todoText);
-
-    // Click Add button
     await page.click('button:has-text("Add")');
 
-    // Wait for the todo to appear
-    await page.waitForTimeout(500);
-
-    // Check that the todo is displayed
+    // Wait for and check that the todo is displayed
     const todoItem = page.locator('.todo-item').first();
     await expect(todoItem).toBeVisible();
     await expect(todoItem.locator('.todo-text')).toHaveText(todoText);
@@ -71,24 +62,19 @@ test.describe('Todo App', () => {
 
     // Check that empty state is gone
     await expect(page.locator('.empty-state')).not.toBeVisible();
-  });
 
-  test('should add a todo by pressing Enter', async ({ page }) => {
-    const todoText = 'Write tests';
-
-    // Enter todo text
-    await page.fill('#todoInput', todoText);
-
-    // Press Enter
+    // Test adding by pressing Enter
+    const secondTodo = 'Write tests';
+    await page.fill('#todoInput', secondTodo);
     await page.press('#todoInput', 'Enter');
 
-    // Wait for the todo to appear
-    await page.waitForTimeout(500);
-
-    // Check that the todo is displayed
-    const todoItem = page.locator('.todo-item').first();
-    await expect(todoItem).toBeVisible();
-    await expect(todoItem.locator('.todo-text')).toHaveText(todoText);
+    // Check that the second todo is displayed
+    const secondItem = page.locator('.todo-item').nth(1);
+    await expect(secondItem).toBeVisible();
+    await expect(secondItem.locator('.todo-text')).toHaveText(secondTodo);
+    
+    // Should have 2 todos now
+    await expect(page.locator('.todo-item')).toHaveCount(2);
   });
 
   test('should not add empty todos', async ({ page }) => {
@@ -113,7 +99,8 @@ test.describe('Todo App', () => {
     for (const todo of todos) {
       await page.fill('#todoInput', todo);
       await page.click('button:has-text("Add")');
-      await page.waitForTimeout(300);
+      // Wait for input to be cleared
+      await expect(page.locator('#todoInput')).toHaveValue('');
     }
 
     // Check that all todos are displayed
@@ -130,18 +117,17 @@ test.describe('Todo App', () => {
     // Add a todo
     await page.fill('#todoInput', 'Complete this task');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
 
     const todoItem = page.locator('.todo-item').first();
     const checkbox = todoItem.locator('input[type="checkbox"]');
 
     // Check that todo is not completed initially
+    await expect(todoItem).toBeVisible();
     await expect(checkbox).not.toBeChecked();
     await expect(todoItem).not.toHaveClass(/completed/);
 
     // Toggle completion
     await checkbox.check();
-    await page.waitForTimeout(500);
 
     // Check that todo is marked as completed
     await expect(checkbox).toBeChecked();
@@ -149,18 +135,16 @@ test.describe('Todo App', () => {
 
     // Toggle back to uncompleted
     await checkbox.uncheck();
-    await page.waitForTimeout(500);
 
     // Check that todo is uncompleted
     await expect(checkbox).not.toBeChecked();
     await expect(todoItem).not.toHaveClass(/completed/);
   });
 
-  test('should delete a todo', async ({ page }) => {
-    // Add a todo
+  test('should delete todos', async ({ page }) => {
+    // Add a single todo and delete it
     await page.fill('#todoInput', 'Delete me');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
 
     // Check that todo exists
     const todoItem = page.locator('.todo-item').first();
@@ -168,27 +152,23 @@ test.describe('Todo App', () => {
 
     // Delete the todo
     await todoItem.locator('button.delete-btn').click();
-    await page.waitForTimeout(500);
 
     // Check that todo is removed
     await expect(page.locator('.todo-item')).toHaveCount(0);
 
     // Empty state should be visible again
     await expect(page.locator('.empty-state')).toBeVisible();
-  });
 
-  test('should delete a specific todo from multiple todos', async ({ page }) => {
-    // Add multiple todos
+    // Test deleting specific todo from multiple todos
     const todos = ['First todo', 'Second todo', 'Third todo'];
     for (const todo of todos) {
       await page.fill('#todoInput', todo);
       await page.click('button:has-text("Add")');
-      await page.waitForTimeout(300);
+      await expect(page.locator('#todoInput')).toHaveValue('');
     }
 
     // Delete the second todo
     await page.locator('.todo-item').nth(1).locator('button.delete-btn').click();
-    await page.waitForTimeout(500);
 
     // Check that we have 2 todos left
     await expect(page.locator('.todo-item')).toHaveCount(2);
@@ -198,42 +178,29 @@ test.describe('Todo App', () => {
     await expect(page.locator('.todo-item').nth(1).locator('.todo-text')).toHaveText('Third todo');
   });
 
-  test('should persist todos after page reload', async ({ page }) => {
+  test('should persist todos and completion state after page reload', async ({ page }) => {
     // Add a todo
     const todoText = 'Persistent todo';
     await page.fill('#todoInput', todoText);
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
-
-    // Reload the page
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-
-    // Check that the todo is still there
-    const todoItem = page.locator('.todo-item').first();
-    await expect(todoItem).toBeVisible();
-    await expect(todoItem.locator('.todo-text')).toHaveText(todoText);
-  });
-
-  test('should persist completed state after page reload', async ({ page }) => {
-    // Add a todo
-    await page.fill('#todoInput', 'Complete and persist');
-    await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
+    await expect(page.locator('.todo-item').first()).toBeVisible();
 
     // Mark as completed
     const checkbox = page.locator('.todo-item').first().locator('input[type="checkbox"]');
     await checkbox.check();
-    await page.waitForTimeout(500);
+    await expect(checkbox).toBeChecked();
 
     // Reload the page
-    await page.reload();
-    await page.waitForLoadState('networkidle');
+    await page.reload({ waitUntil: 'domcontentloaded' });
 
-    // Check that the todo is still completed
-    const reloadedCheckbox = page.locator('.todo-item').first().locator('input[type="checkbox"]');
+    // Check that the todo is still there and still completed
+    const todoItem = page.locator('.todo-item').first();
+    await expect(todoItem).toBeVisible();
+    await expect(todoItem.locator('.todo-text')).toHaveText(todoText);
+    
+    const reloadedCheckbox = todoItem.locator('input[type="checkbox"]');
     await expect(reloadedCheckbox).toBeChecked();
-    await expect(page.locator('.todo-item').first()).toHaveClass(/completed/);
+    await expect(todoItem).toHaveClass(/completed/);
   });
 
   test('should handle special characters in todo text', async ({ page }) => {
@@ -242,7 +209,6 @@ test.describe('Todo App', () => {
     // Add todo with special characters
     await page.fill('#todoInput', specialText);
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
 
     // Check that the text is properly escaped and displayed
     const todoText = page.locator('.todo-item').first().locator('.todo-text');
@@ -260,31 +226,37 @@ test.describe('Todo App', () => {
     // Add long todo
     await page.fill('#todoInput', longText);
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
 
     // Check that the todo is displayed
     const todoText = page.locator('.todo-item').first().locator('.todo-text');
     await expect(todoText).toHaveText(longText);
   });
 
-  test('should complete and delete multiple todos', async ({ page }) => {
+  test('should complete, verify styling, and delete multiple todos', async ({ page }) => {
     // Add multiple todos
     const todos = ['Task 1', 'Task 2', 'Task 3', 'Task 4'];
     for (const todo of todos) {
       await page.fill('#todoInput', todo);
       await page.click('button:has-text("Add")');
-      await page.waitForTimeout(300);
+      await expect(page.locator('#todoInput')).toHaveValue('');
     }
 
     // Mark some as completed
     await page.locator('.todo-item').nth(0).locator('input[type="checkbox"]').check();
-    await page.waitForTimeout(300);
     await page.locator('.todo-item').nth(2).locator('input[type="checkbox"]').check();
-    await page.waitForTimeout(300);
+
+    // Verify UI styling for completed todo
+    const completedItem = page.locator('.todo-item').nth(0);
+    await expect(completedItem).toHaveClass(/completed/);
+    
+    const completedText = completedItem.locator('.todo-text');
+    const textDecoration = await completedText.evaluate(el => {
+      return window.getComputedStyle(el).textDecoration;
+    });
+    expect(textDecoration).toContain('line-through');
 
     // Delete a completed todo
     await page.locator('.todo-item').nth(0).locator('button.delete-btn').click();
-    await page.waitForTimeout(500);
 
     // Check remaining todos
     await expect(page.locator('.todo-item')).toHaveCount(3);
@@ -298,52 +270,20 @@ test.describe('Todo App', () => {
     await expect(page.locator('.todo-item').nth(1).locator('input[type="checkbox"]')).toBeChecked();
   });
 
-  test('should verify UI styling for completed todos', async ({ page }) => {
-    // Add a todo
-    await page.fill('#todoInput', 'Check styling');
-    await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
-
-    const todoItem = page.locator('.todo-item').first();
-    const todoText = todoItem.locator('.todo-text');
-
-    // Mark as completed
-    await todoItem.locator('input[type="checkbox"]').check();
-    await page.waitForTimeout(500);
-
-    // Check that completed class is applied
-    await expect(todoItem).toHaveClass(/completed/);
-    
-    // Check that text has line-through style
-    const textDecoration = await todoText.evaluate(el => {
-      return window.getComputedStyle(el).textDecoration;
-    });
-    expect(textDecoration).toContain('line-through');
-  });
-
-  test('should handle rapid successive operations', async ({ page }) => {
+  test('should handle rapid successive operations and verify delete button', async ({ page }) => {
     // Rapidly add multiple todos
     const todos = ['Quick 1', 'Quick 2', 'Quick 3'];
     for (const todo of todos) {
       await page.fill('#todoInput', todo);
       await page.press('#todoInput', 'Enter');
     }
-    
-    // Give a bit more time for all operations to complete
-    await page.waitForTimeout(1000);
 
     // Check that all todos were added
     const todoItems = page.locator('.todo-item');
     await expect(todoItems).toHaveCount(3);
-  });
-
-  test('should verify delete button styling', async ({ page }) => {
-    // Add a todo
-    await page.fill('#todoInput', 'Test delete button');
-    await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
-
-    const deleteButton = page.locator('.todo-item').first().locator('button.delete-btn');
+    
+    // Verify delete button styling on first todo
+    const deleteButton = todoItems.first().locator('button.delete-btn');
     
     // Check button is visible and has correct text
     await expect(deleteButton).toBeVisible();
