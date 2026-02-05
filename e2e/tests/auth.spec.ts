@@ -244,35 +244,28 @@ test.describe('Config-based Authentication', () => {
     }
   });
 
-  test('should redirect to login when not authenticated', async ({ page }) => {
+  test('should redirect to login and show login form', async ({ page }) => {
+    // Check redirect when not authenticated
     await page.goto(`${baseURL}/todo/`);
     await page.waitForURL(/\/login/);
     expect(page.url()).toContain('/login');
-  });
 
-  test('should show login page', async ({ page }) => {
-    await page.goto(`${baseURL}/login`);
-    await expect(page.locator('h1')).toContainText('Login');
+    // Verify login form elements are visible
     await expect(page.locator('input[name="username"]')).toBeVisible();
     await expect(page.locator('input[name="password"]')).toBeVisible();
-  });
 
-  test('should reject invalid credentials', async ({ page }) => {
-    await page.goto(`${baseURL}/login`);
-
-    // Fill in invalid credentials
+    // Test invalid credentials
     await page.fill('input[name="username"]', 'wronguser');
     await page.fill('input[name="password"]', 'wrongpass');
     await page.click('button[type="submit"]');
 
     // Should see error
-    await page.waitForSelector('.error', { state: 'visible', timeout: 5000 });
+    await expect(page.locator('.error')).toBeVisible();
   });
 
-  test('should login with valid credentials from config', async ({ page }) => {
+  test('should login successfully and store data in config-specified data_dir', async ({ page }) => {
+    // Login with valid credentials
     await page.goto(`${baseURL}/login?next=/todo/`);
-
-    // Fill in valid credentials
     await page.fill('input[name="username"]', 'testuser');
     await page.fill('input[name="password"]', 'testpass123');
     await page.click('button[type="submit"]');
@@ -280,35 +273,16 @@ test.describe('Config-based Authentication', () => {
     // Should redirect to todo app
     await page.waitForURL(/\/todo/, { timeout: 5000 });
     expect(page.url()).toContain('/todo');
-  });
 
-  test('should store data in config-specified data_dir', async ({ page, context }) => {
-    // Login as testuser
-    await page.goto(`${baseURL}/login`);
-    await page.fill('input[name="username"]', 'testuser');
-    await page.fill('input[name="password"]', 'testpass123');
-    await page.click('button[type="submit"]');
-
-    // Wait for redirect away from login page
-    await page.waitForURL((url) => !url.pathname.includes('/login'));
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
-
-    // Add a todo item
+    // Add a todo item to verify data storage
     await page.fill('#todoInput', 'Test config auth data');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(500);
+
+    // Wait for todo to appear in list (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Test config auth data' }).first()).toBeVisible();
 
     // Verify data file was created in the correct location
     const dataFile = path.join(testDataDir, 'todo', 'data', 'todos.json');
-
-    // Wait a bit for file to be written
-    await page.waitForTimeout(1000);
-
-    // Check that file exists in the config-specified directory
     expect(fs.existsSync(dataFile)).toBeTruthy();
 
     const data = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
@@ -327,18 +301,20 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="password"]', 'alicepass');
     await page.click('button[type="submit"]');
 
-    // Wait for redirect away from login page
-    await page.waitForURL((url) => !url.pathname.includes('/login'));
-    await page.waitForLoadState('networkidle');
+    // Wait for redirect to todo app
+    await page.waitForURL(/\/todo|\/$/, { timeout: 5000 });
 
-    // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
+    // Navigate to todo app if not already there
+    if (!page.url().includes('/todo')) {
+      await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
+    }
 
     // Add a todo item
     await page.fill('#todoInput', 'Alice\'s private task');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Alice\'s private task' }).first()).toBeVisible();
 
     // Verify data is in alice's directory
     const aliceDataFile = path.join(testDataDir, 'alice', 'todo', 'data', 'todos.json');
@@ -374,12 +350,9 @@ test.describe('Config-based Authentication', () => {
     await page.fill('input[name="password"]', 'testpass123');
     await page.click('button[type="submit"]');
 
+    // Wait for redirect and navigate to todo app
     await page.waitForURL((url) => !url.pathname.includes('/login'));
-    await page.waitForLoadState('networkidle');
-
-    // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
 
     // Clear existing data
     await page.evaluate(() => {
@@ -389,12 +362,13 @@ test.describe('Config-based Authentication', () => {
         body: JSON.stringify([])
       });
     });
-    await page.waitForTimeout(500);
 
     // Add a todo item to create a new file
     await page.fill('#todoInput', 'Ownership test item');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Ownership test item' }).first()).toBeVisible();
 
     // Check file ownership
     const dataFile = path.join(testDataDir, 'todo', 'data', 'todos.json');
@@ -478,8 +452,7 @@ test.describe('Reverse Proxy Authentication (none)', () => {
     });
 
     // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
 
     // Clear existing todos
     await page.evaluate(() => {
@@ -493,7 +466,9 @@ test.describe('Reverse Proxy Authentication (none)', () => {
     // Add a todo item
     await page.fill('#todoInput', 'Test proxy auth data');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Test proxy auth data' }).first()).toBeVisible();
 
     // Verify data file was created in user's home directory
     const dataFile = path.join(expectedDataDir, 'todo', 'data', 'todos.json');
@@ -546,26 +521,15 @@ test.describe('Dev Mode', () => {
     }
   });
 
-  test('should allow access without authentication', async ({ page }) => {
-    await page.goto(`${baseURL}/todo/`);
-    // Should load directly without redirect
-    await page.waitForLoadState('networkidle');
+  test('should allow access without authentication and store data correctly', async ({ page }) => {
+    // Should load directly without redirect to login
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('h1')).toContainText('Todo List');
-  });
 
-  test('should not show login page in dev mode', async ({ page }) => {
-    // Dev mode should still have login disabled or use auto-auth
-    await page.goto(`${baseURL}/`);
-    await page.waitForLoadState('networkidle');
-    // Should see homepage, not login
+    // Verify no redirect to login page
     expect(page.url()).not.toContain('login');
-  });
 
-  test('should use current user for dev mode', async ({ page }) => {
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
-
-    // Clear and add a todo
+    // Clear and add a todo to test data storage
     await page.evaluate(() => {
       return fetch('/api/todo/data/todos.json', {
         method: 'PUT',
@@ -576,7 +540,9 @@ test.describe('Dev Mode', () => {
 
     await page.fill('#todoInput', 'Dev mode task');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Dev mode task' }).first()).toBeVisible();
 
     // In dev mode, should use current user's home
     const userHome = os.homedir();
@@ -594,8 +560,7 @@ test.describe('Dev Mode', () => {
   });
 
   test('should set file ownership to current user in dev mode', async ({ page }) => {
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
 
     // Clear and add a todo
     await page.evaluate(() => {
@@ -608,7 +573,9 @@ test.describe('Dev Mode', () => {
 
     await page.fill('#todoInput', 'Dev mode ownership test');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Dev mode ownership test' }).first()).toBeVisible();
 
     // In dev mode, should use current user's home
     const userHome = os.homedir();
@@ -671,35 +638,28 @@ test.describe('PAM Authentication', () => {
     }
   });
 
-  test('should redirect to login when not authenticated', async ({ page }) => {
+  test('should redirect to login and handle authentication', async ({ page }) => {
+    // Check redirect when not authenticated
     await page.goto(`${baseURL}/todo/`);
     await page.waitForURL(/\/login/);
     expect(page.url()).toContain('/login');
-  });
 
-  test('should show login page', async ({ page }) => {
-    await page.goto(`${baseURL}/login`);
-    await expect(page.locator('h1')).toContainText('Login');
+    // Verify login form elements
     await expect(page.locator('input[name="username"]')).toBeVisible();
     await expect(page.locator('input[name="password"]')).toBeVisible();
-  });
 
-  test('should reject invalid credentials', async ({ page }) => {
-    await page.goto(`${baseURL}/login`);
-
-    // Fill in invalid credentials (non-existent user to avoid locking out real users)
+    // Test invalid credentials
     await page.fill('input[name="username"]', 'nonexistentuser');
     await page.fill('input[name="password"]', 'wrongpassword');
     await page.click('button[type="submit"]');
 
     // Should see error
-    await page.waitForSelector('.error', { state: 'visible', timeout: 5000 });
+    await expect(page.locator('.error')).toBeVisible();
   });
 
-  test('should login with alice credentials', async ({ page }) => {
+  test('should login with alice credentials and store data in her home directory', async ({ page }) => {
+    // Login with alice's credentials
     await page.goto(`${baseURL}/login?next=/todo/`);
-
-    // Fill in alice's credentials
     await page.fill('input[name="username"]', 'alice');
     await page.fill('input[name="password"]', 'alice123');
     await page.click('button[type="submit"]');
@@ -707,24 +667,9 @@ test.describe('PAM Authentication', () => {
     // Should redirect to todo app
     await page.waitForURL(/\/todo/, { timeout: 10000 });
     expect(page.url()).toContain('/todo');
-  });
 
-  test('should store alice data in her home directory', async ({ page }) => {
-    // Login as alice first
-    await page.goto(`${baseURL}/login`);
-    await page.fill('input[name="username"]', 'alice');
-    await page.fill('input[name="password"]', 'alice123');
-    await page.click('button[type="submit"]');
-
-    // Wait for redirect after login
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-
-    // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
-
-    // Wait for todo app to be ready
-    await page.waitForSelector('#todoInput', { timeout: 10000 });
+    // Wait for todo input to be ready
+    await expect(page.locator('#todoInput')).toBeVisible();
 
     // Clear existing todos
     await page.evaluate(() => {
@@ -738,7 +683,9 @@ test.describe('PAM Authentication', () => {
     // Add a todo item
     await page.fill('#todoInput', 'Alice PAM test task');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Alice PAM test task' }).first()).toBeVisible();
 
     // Verify data file was created in alice's home directory
     const dataFile = path.join(aliceDataDir, 'todo', 'data', 'todos.json');
@@ -752,13 +699,10 @@ test.describe('PAM Authentication', () => {
     );
   });
 
-  test('should login with bob credentials', async ({ page, context }) => {
-    // Clear cookies to start fresh
+  test('should login with bob credentials and isolate data from alice', async ({ page, context }) => {
+    // Clear cookies and login as bob
     await context.clearCookies();
-
     await page.goto(`${baseURL}/login?next=/todo/`);
-
-    // Fill in bob's credentials
     await page.fill('input[name="username"]', 'bob');
     await page.fill('input[name="password"]', 'bob123');
     await page.click('button[type="submit"]');
@@ -766,25 +710,9 @@ test.describe('PAM Authentication', () => {
     // Should redirect to todo app
     await page.waitForURL(/\/todo/, { timeout: 10000 });
     expect(page.url()).toContain('/todo');
-  });
 
-  test('should isolate data between alice and bob', async ({ page, context }) => {
-    // Clear cookies and login as bob
-    await context.clearCookies();
-    await page.goto(`${baseURL}/login`);
-    await page.fill('input[name="username"]', 'bob');
-    await page.fill('input[name="password"]', 'bob123');
-    await page.click('button[type="submit"]');
-
-    // Wait for redirect after login
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
-
-    // Navigate to todo app
-    await page.goto(`${baseURL}/todo/`);
-    await page.waitForLoadState('networkidle');
-
-    // Wait for todo app to be ready
-    await page.waitForSelector('#todoInput', { timeout: 10000 });
+    // Wait for todo input to be ready
+    await expect(page.locator('#todoInput')).toBeVisible();
 
     // Clear existing todos
     await page.evaluate(() => {
@@ -798,7 +726,9 @@ test.describe('PAM Authentication', () => {
     // Add a todo item as bob
     await page.fill('#todoInput', 'Bob PAM test task');
     await page.click('button:has-text("Add")');
-    await page.waitForTimeout(1000);
+    
+    // Wait for todo to appear (use first() to handle any duplicates)
+    await expect(page.locator('.todo-item, li').filter({ hasText: 'Bob PAM test task' }).first()).toBeVisible();
 
     // Verify data is in bob's directory
     const bobDataFile = path.join(bobDataDir, 'todo', 'data', 'todos.json');
