@@ -38,6 +38,7 @@ pub(crate) enum AuthType {
 // Maps token -> TokenInfo
 pub(crate) type TokenStore = Arc<RwLock<HashMap<String, TokenInfo>>>;
 
+// Information stored for each active token
 #[derive(Clone, Debug)]
 pub(crate) struct TokenInfo {
     #[allow(dead_code)]
@@ -82,6 +83,7 @@ struct PamResponse {
     resp_retcode: c_int,
 }
 
+// PAM conversation structure
 #[repr(C)]
 struct PamConv {
     conv: extern "C" fn(
@@ -93,6 +95,7 @@ struct PamConv {
     appdata_ptr: *mut c_void,
 }
 
+// Conversation handler for PAM authentication
 extern "C" fn conversation_handler(
     num_msg: c_int,
     msg: *const *const PamMessage,
@@ -247,6 +250,11 @@ fn is_authenticated(jar: &CookieJar, state: &AppState) -> bool {
     false
 }
 
+// Middleware for public page authentication
+// Redirects to login page if not authenticated
+// For reverse proxy auth, checks X-Remote-User header
+// Creates auto-login token if valid header found
+// In dev mode, falls back to current user if no header
 pub(crate) async fn public_page_auth_middleware(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -336,6 +344,12 @@ pub(crate) async fn public_page_auth_middleware(
     Ok(next.run(req).await)
 }
 
+
+// Render login page
+// The page includes client-side RSA encryption of the password
+// using the server's public key in PEM format
+// The encrypted password is sent to the /login endpoint
+// via AJAX for authentication
 pub(crate) async fn login_page(
     State(state): State<AppState>,
     Query(query): Query<LoginQuery>,
@@ -406,161 +420,181 @@ pub(crate) async fn login_page(
             font-size: 0.9rem;
             letter-spacing: 0.01em;
         }}
-        .card {{
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            backdrop-filter: blur(6px);
+        .form-group {{
+            margin-bottom: 24px;
         }}
         label {{
             display: block;
             margin-bottom: 8px;
-            font-size: 0.88rem;
-            color: #c7d2fe;
+            color: #9aa4b2;
+            font-weight: 500;
+            font-size: 0.875rem;
+            letter-spacing: 0.01em;
         }}
         input {{
             width: 100%;
-            padding: 12px 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(0,0,0,0.28);
-            color: white;
-            outline: none;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(230, 238, 248, 0.12);
+            border-radius: 8px;
             font-size: 1rem;
+            color: #e6eef8;
+            transition: all 0.2s ease;
         }}
         input:focus {{
-            border-color: rgba(56, 189, 248, 0.45);
-            box-shadow: 0 0 0 4px rgba(56,189,248,0.10);
+            outline: none;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(230, 238, 248, 0.24);
         }}
-        .field {{
-            margin-bottom: 16px;
+        input::placeholder {{
+            color: #728096;
         }}
         button {{
             width: 100%;
-            margin-top: 8px;
-            padding: 12px 14px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.10);
-            background: linear-gradient(180deg, rgba(56,189,248,0.22), rgba(56,189,248,0.12));
-            color: white;
+            padding: 14px;
+            background: rgba(230, 238, 248, 0.08);
+            color: #ffffff;
+            border: 1px solid rgba(230, 238, 248, 0.12);
+            border-radius: 8px;
             font-size: 1rem;
+            font-weight: 500;
             cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 8px;
+        }}
+        button:hover {{
+            background: rgba(230, 238, 248, 0.12);
+            border-color: rgba(230, 238, 248, 0.2);
+            transform: translateY(-1px);
+        }}
+        button:active {{
+            transform: translateY(0);
         }}
         button:disabled {{
-            opacity: 0.6;
+            background: rgba(230, 238, 248, 0.04);
+            border-color: rgba(230, 238, 248, 0.06);
+            color: #728096;
             cursor: not-allowed;
+            transform: none;
         }}
         .error {{
-            display: none;
-            margin-top: 14px;
-            padding: 10px 12px;
-            border-radius: 12px;
-            background: rgba(239,68,68,0.12);
-            border: 1px solid rgba(239,68,68,0.25);
-            color: rgba(254,226,226,0.95);
-            font-size: 0.9rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 0.875rem;
+        }}
+        .lock-icon {{
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 24px;
+            opacity: 0.6;
         }}
         .footer {{
-            margin-top: 18px;
-            text-align: center;
+            position: fixed;
+            left: 0; right: 0;
+            bottom: 12px;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }}
+        .footer .meta {{
             color: #728096;
             font-size: 0.82rem;
+            background: rgba(255,255,255,0.02);
+            padding: 6px 10px;
+            border-radius: 999px;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Login</h1>
-        <div class="subtitle">fleabox {}</div>
-        <div class="card">
-            <form id="loginForm">
-                <div class="field">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required autofocus autocomplete="username" />
-                </div>
-                <div class="field">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required autocomplete="current-password" />
-                </div>
-                <button type="submit" id="submitBtn">Login</button>
-                <div class="error" id="error"></div>
-            </form>
-        </div>
-        <div class="footer">Passwords are encrypted in-browser (RSA-OAEP).</div>
+        <div id="error" class="error" style="display: none;"></div>
+        <form id="loginForm">
+            <div class="form-group">
+                <input type="text" id="username" name="username" required autocomplete="username" placeholder="Username">
+            </div>
+            <div class="form-group">
+                <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Password">
+            </div>
+            <button type="submit" id="submitBtn">Login</button>
+        </form>
     </div>
-
+    <div class="footer"><div class="meta">fleabox {}</div></div>
     <script>
-        const publicKeyPem = `{public_key_pem}`;
-        const nextUrl = {next_json};
-
+        const PUBLIC_KEY_PEM = `{public_key_pem}`;
+        const NEXT_URL = {next_json};
+        
         async function importPublicKey(pem) {{
-            const pemHeader = "-----BEGIN PUBLIC KEY-----";
-            const pemFooter = "-----END PUBLIC KEY-----";
             const pemContents = pem
-                .replace(pemHeader, "")
-                .replace(pemFooter, "")
-                .replace(/\s/g, "");
-
-            const binaryDerString = atob(pemContents);
-            const binaryDer = new Uint8Array(binaryDerString.length);
-            for (let i = 0; i < binaryDerString.length; i++) {{
-                binaryDer[i] = binaryDerString.charCodeAt(i);
-            }}
-
-            return crypto.subtle.importKey(
-                "spki",
-                binaryDer.buffer,
-                {{ name: "RSA-OAEP", hash: "SHA-256" }},
+                .replace(/-----BEGIN PUBLIC KEY-----/, '')
+                .replace(/-----END PUBLIC KEY-----/, '')
+                .replace(/\s/g, '');
+            const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+            
+            return await crypto.subtle.importKey(
+                'spki',
+                binaryDer,
+                {{
+                    name: 'RSA-OAEP',
+                    hash: 'SHA-256'
+                }},
                 false,
-                ["encrypt"]
+                ['encrypt']
             );
         }}
-
-        async function encryptPassword(password) {{
-            const publicKey = await importPublicKey(publicKeyPem);
-            const enc = new TextEncoder();
+        
+        async function encryptPassword(password, publicKey) {{
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            
             const encrypted = await crypto.subtle.encrypt(
-                {{ name: "RSA-OAEP" }},
+                {{
+                    name: 'RSA-OAEP'
+                }},
                 publicKey,
-                enc.encode(password)
+                data
             );
-            const bytes = new Uint8Array(encrypted);
-            let binary = "";
-            for (let i = 0; i < bytes.byteLength; i++) {{
-                binary += String.fromCharCode(bytes[i]);
-            }}
-            return btoa(binary);
+            
+            return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
         }}
-
+        
         document.getElementById('loginForm').addEventListener('submit', async (e) => {{
             e.preventDefault();
-            const errorDiv = document.getElementById('error');
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
             const submitBtn = document.getElementById('submitBtn');
+            const errorDiv = document.getElementById('error');
+            
             errorDiv.style.display = 'none';
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Signing in…';
-
+            submitBtn.textContent = 'Logging in...';
+            
             try {{
-                const username = document.getElementById('username').value;
-                const password = document.getElementById('password').value;
-                const encrypted_password = await encryptPassword(password);
-
+                const publicKey = await importPublicKey(PUBLIC_KEY_PEM);
+                const encryptedPassword = await encryptPassword(password, publicKey);
+                
                 const response = await fetch('/login', {{
                     method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ username, encrypted_password }})
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{
+                        username,
+                        encrypted_password: encryptedPassword
+                    }})
                 }});
-
+                
                 if (response.ok) {{
-                    window.location.href = nextUrl || '/';
+                    window.location.href = NEXT_URL;
                 }} else {{
-                    let msg = 'Login failed';
-                    try {{
-                        const data = await response.json();
-                        msg = data.message || data.error || msg;
-                    }} catch (_) {{}}
-                    errorDiv.textContent = msg;
+                    const data = await response.json();
+                    errorDiv.textContent = data.message || 'Login failed';
                     errorDiv.style.display = 'block';
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Login';
@@ -662,7 +696,7 @@ pub(crate) async fn login_handler(
         store.insert(token.clone(), token_info);
     }
 
-    // Set cookie
+    // Set authentication cookie
     let cookie = Cookie::build(("fleabox_token", token))
         .path("/")
         .http_only(true)
@@ -670,6 +704,14 @@ pub(crate) async fn login_handler(
         .max_age(time::Duration::hours(8));
 
     let jar = jar.add(cookie);
+
+    // set username cookie for client-side use (not http-only)
+    let username_cookie = Cookie::build(("fleabox_username", login_req.username))
+        .path("/")
+        .same_site(SameSite::Lax)
+        .max_age(time::Duration::hours(8));
+
+    let jar = jar.add(username_cookie);
 
     Ok((jar, StatusCode::OK))
 }
