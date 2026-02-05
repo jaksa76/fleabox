@@ -107,23 +107,37 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
 // Helper to stop fleabox server
 function stopFleabox(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
-    if (!proc.killed) {
+    let resolved = false;
+    
+    const cleanup = () => {
+      if (!resolved) {
+        resolved = true;
+        // Kill any remaining fleabox processes
+        const killProc = spawn('sudo', ['pkill', '-9', 'fleabox'], { stdio: 'ignore' });
+        killProc.on('close', () => resolve());
+        // Always resolve after a short delay even if pkill hangs
+        setTimeout(() => resolve(), 300);
+      }
+    };
+    
+    if (!proc.killed && proc.pid) {
+      // Try graceful shutdown first
       proc.kill('SIGTERM');
-      proc.on('exit', () => {
-        // Also try to kill any remaining fleabox processes
-        spawn('sudo', ['pkill', '-9', 'fleabox']);
-        setTimeout(() => resolve(), 500);
-      });
+      
+      // If process exits, clean up
+      proc.on('exit', cleanup);
+      
+      // Force kill after 2 seconds
       setTimeout(() => {
-        if (!proc.killed) {
+        if (!resolved && !proc.killed) {
           proc.kill('SIGKILL');
-          // Ensure cleanup
-          spawn('sudo', ['pkill', '-9', 'fleabox']);
-          setTimeout(() => resolve(), 500);
         }
       }, 2000);
+      
+      // Always resolve after 3 seconds maximum
+      setTimeout(cleanup, 3000);
     } else {
-      resolve();
+      cleanup();
     }
   });
 }
