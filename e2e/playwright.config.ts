@@ -38,7 +38,7 @@ export default defineConfig({
     toHaveScreenshot: { timeout: 10000 }, // 10s for screenshots
     toPass: { 
       timeout: 5000, // 5s for toPass
-      intervals: [100, 250, 500, 1000] // Poll more aggressively: 100ms, 250ms, 500ms, then 1s
+      intervals: [10, 20, 50, 100, 250, 500, 1000] // Poll more aggressively
     }
   },
 

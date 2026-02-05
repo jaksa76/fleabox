@@ -29,7 +29,7 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
     if (useSudo) {
       // For PAM authentication, run with sudo
       // Build the binary first to avoid sudo issues with cargo
-      const buildProc = spawn('cargo', ['build'], {
+      const buildProc = spawn('cargo', ['build', '--release'], {
         cwd: PROJECT_DIR,
         stdio: 'inherit'
       });
@@ -41,7 +41,7 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
         }
 
         // Run the built binary with sudo
-        const binaryPath = path.join(PROJECT_DIR, 'target', 'debug', 'fleabox');
+        const binaryPath = path.join(PROJECT_DIR, 'target', 'release', 'fleabox');
         proc = spawn('sudo', [binaryPath, ...args], {
           cwd: PROJECT_DIR,
           stdio: ['ignore', 'pipe', 'pipe']
