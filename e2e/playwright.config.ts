@@ -26,6 +26,20 @@ export default defineConfig({
   use: {
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+    /* Faster assertion timeouts and polling */
+    actionTimeout: 10000, // 10s timeout for actions (default 30s)
+    navigationTimeout: 30000, // 30s for page navigation (default 30s)
+  },
+  /* Increase test timeout slightly to account for faster polling */
+  timeout: 30000, // 30s per test (default 30s)
+  /* Configure expect timeout for faster polling */
+  expect: {
+    timeout: 5000, // 5s for assertions (default 5s) 
+    toHaveScreenshot: { timeout: 10000 }, // 10s for screenshots
+    toPass: { 
+      timeout: 5000, // 5s for toPass
+      intervals: [100, 250, 500, 1000] // Poll more aggressively: 100ms, 250ms, 500ms, then 1s
+    }
   },
 
   /* Configure test projects */

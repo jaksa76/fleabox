@@ -3,8 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Bookmarks App', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the bookmarks app before each test
-    await page.goto('/bookmarks/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/bookmarks/', { waitUntil: 'domcontentloaded' });
 
     // Clear all existing bookmarks to ensure clean state
     await page.evaluate(() => {
@@ -16,8 +15,7 @@ test.describe('Bookmarks App', () => {
     });
 
     // Reload to reflect the cleared state
-    await page.reload();
-    await page.waitForLoadState('networkidle');
+    await page.reload({ waitUntil: 'domcontentloaded' });
   });
 
   test.describe('Initial page load', () => {
@@ -138,9 +136,8 @@ test.describe('Bookmarks App', () => {
 
       // Save the bookmark
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
-      // Check that the bookmark is displayed
+      // Wait for bookmark to appear and check count
       await expect(page.locator('.bookmark-item')).toHaveCount(1);
       await expect(page.locator('.bookmark-title a')).toContainText('GitHub');
       await expect(page.locator('.bookmark-url')).toContainText('https://github.com');
@@ -174,7 +171,6 @@ test.describe('Bookmarks App', () => {
 
       // Save
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
       // Should be in "Uncategorized" category
       await expect(page.locator('.category-title')).toContainText('Uncategorized');
@@ -188,7 +184,6 @@ test.describe('Bookmarks App', () => {
       await page.fill('#categoryInput', 'Test & Special');
       await page.fill('#descriptionInput', 'Special chars: < > & "');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
       // Check that special characters are properly escaped
       const title = page.locator('.bookmark-title a');
@@ -206,11 +201,12 @@ test.describe('Bookmarks App', () => {
       await page.fill('#urlInput', 'https://persistent.com');
       await page.fill('#categoryInput', 'Test');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
+      
+      // Wait for bookmark to appear before reloading
+      await expect(page.locator('.bookmark-item')).toHaveCount(1);
 
       // Reload the page
-      await page.reload();
-      await page.waitForLoadState('networkidle');
+      await page.reload({ waitUntil: 'domcontentloaded' });
 
       // Check that the bookmark is still there
       await expect(page.locator('.bookmark-item')).toHaveCount(1);
@@ -268,7 +264,8 @@ test.describe('Bookmarks App', () => {
         await page.fill('#urlInput', bookmark.url);
         await page.fill('#categoryInput', bookmark.category);
         await page.click('button:has-text("Save Bookmark")');
-        await page.waitForTimeout(500);
+        // Wait for form to hide after save
+        await expect(page.locator('#addForm')).not.toHaveClass(/show/);
       }
 
       // Get all category titles
@@ -287,7 +284,9 @@ test.describe('Bookmarks App', () => {
       await page.fill('#urlInput', 'https://original.com');
       await page.fill('#categoryInput', 'Original Category');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
+      
+      // Wait for bookmark to appear
+      await expect(page.locator('.bookmark-item')).toHaveCount(1);
 
       // Click edit button
       await page.click('button.edit-btn');
@@ -303,7 +302,6 @@ test.describe('Bookmarks App', () => {
       await page.fill('#urlInput', 'https://updated.com');
       await page.fill('#categoryInput', 'Updated Category');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
       // Check that changes are reflected
       await expect(page.locator('.bookmark-title a')).toContainText('Updated Title');
@@ -320,7 +318,6 @@ test.describe('Bookmarks App', () => {
       await page.fill('#titleInput', 'Delete Me');
       await page.fill('#urlInput', 'https://deleteme.com');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
       // Check bookmark exists
       await expect(page.locator('.bookmark-item')).toHaveCount(1);
@@ -330,7 +327,6 @@ test.describe('Bookmarks App', () => {
 
       // Click delete button
       await page.click('button.delete-btn');
-      await page.waitForTimeout(500);
 
       // Check that bookmark is removed
       await expect(page.locator('.bookmark-item')).toHaveCount(0);
@@ -345,14 +341,12 @@ test.describe('Bookmarks App', () => {
       await page.fill('#titleInput', 'Keep Me');
       await page.fill('#urlInput', 'https://keepme.com');
       await page.click('button:has-text("Save Bookmark")');
-      await page.waitForTimeout(500);
 
       // Set up dialog handler to dismiss the confirmation
       page.on('dialog', dialog => dialog.dismiss());
 
       // Click delete button
       await page.click('button.delete-btn');
-      await page.waitForTimeout(500);
 
       // Bookmark should still exist
       await expect(page.locator('.bookmark-item')).toHaveCount(1);
