@@ -44,7 +44,7 @@ pub(crate) async fn api_get_public_data(
         .get::<UserInfo>()
         .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
 
-    let public_root = user_info.home_dir.join("public").join(&app_id);
+    let public_root = user_info.home_dir.join(&app_id).join("public");
 
     // If public root doesn't exist, return 404
     if !public_root.exists() {
@@ -157,7 +157,7 @@ pub(crate) async fn api_put_public_data(
         .ok_or_else(|| ErrorResponse::new("unauthorized", None))?
         .clone();
 
-    let public_root = user_info.home_dir.join("public").join(&app_id);
+    let public_root = user_info.home_dir.join(&app_id).join("public");
 
     // Create public root lazily on first write
     if !public_root.exists() {
@@ -293,7 +293,7 @@ pub(crate) async fn api_delete_public_data(
         .get::<UserInfo>()
         .ok_or_else(|| ErrorResponse::new("unauthorized", None))?;
 
-    let public_root = user_info.home_dir.join("public").join(&app_id);
+    let public_root = user_info.home_dir.join(&app_id).join("public");
 
     if !public_root.exists() {
         return Err(ErrorResponse::new(
@@ -345,7 +345,7 @@ pub(crate) async fn api_get_user_public_data(
     // Resolve user's data directory
     let base_dir = resolve_user_data_dir(&user_id, &state.auth_type, &state.config, state.dev_mode)?;
 
-    let public_root = base_dir.join("public").join(&app_id);
+    let public_root = base_dir.join(&app_id).join("public");
 
     // If public root doesn't exist, return 404
     if !public_root.exists() {
@@ -446,7 +446,7 @@ pub(crate) async fn api_get_user_public_data_root(
     // Resolve user's data directory
     let base_dir = resolve_user_data_dir(&user_id, &state.auth_type, &state.config, state.dev_mode)?;
 
-    let public_root = base_dir.join("public").join(&app_id);
+    let public_root = base_dir.join(&app_id).join("public");
 
     // If public root doesn't exist, return 404
     if !public_root.exists() {
