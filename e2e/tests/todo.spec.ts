@@ -185,9 +185,12 @@ test.describe('Todo App', () => {
     await page.click('button:has-text("Add")');
     await expect(page.locator('.todo-item').first()).toBeVisible();
 
-    // Mark as completed
+    // Mark as completed and wait for save to complete
     const checkbox = page.locator('.todo-item').first().locator('input[type="checkbox"]');
-    await checkbox.check();
+    await Promise.all([
+      page.waitForResponse(resp => resp.url().includes('/api/todo/data/todos.json') && resp.request().method() === 'PUT'),
+      checkbox.check(),
+    ]);
     await expect(checkbox).toBeChecked();
 
     // Reload the page
@@ -250,10 +253,7 @@ test.describe('Todo App', () => {
     await expect(completedItem).toHaveClass(/completed/);
     
     const completedText = completedItem.locator('.todo-text');
-    const textDecoration = await completedText.evaluate(el => {
-      return window.getComputedStyle(el).textDecoration;
-    });
-    expect(textDecoration).toContain('line-through');
+    await expect(completedText).toHaveCSS('text-decoration-line', 'line-through');
 
     // Delete a completed todo
     await page.locator('.todo-item').nth(0).locator('button.delete-btn').click();

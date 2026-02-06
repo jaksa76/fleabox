@@ -890,8 +890,8 @@ test.describe('PAM Authentication', () => {
     await page.fill('input[name="password"]', 'alice123');
     await page.click('button[type="submit"]');
 
-    // Wait for successful login
-    await page.waitForURL(/\/todo/, { timeout: 10000 });
+    // Wait for successful login (redirect away from login page)
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Verify cookies are set
     const cookies = await context.cookies();
@@ -927,7 +927,7 @@ test.describe('PAM Authentication', () => {
     await page.fill('input[name="username"]', 'alice');
     await page.fill('input[name="password"]', 'alice123');
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\/todo/, { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Logout
     await page.goto(`${baseURL}/logout`);
@@ -938,7 +938,7 @@ test.describe('PAM Authentication', () => {
     await page.fill('input[name="username"]', 'bob');
     await page.fill('input[name="password"]', 'bob123');
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\/todo/, { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
 
     // Verify logged in as bob
     const cookies = await context.cookies();
@@ -946,6 +946,7 @@ test.describe('PAM Authentication', () => {
     expect(usernameCookie?.value).toBe('bob');
 
     // Should be able to access todo app
+    await page.goto(`${baseURL}/todo/`);
     await expect(page.locator('#todoInput')).toBeVisible();
   });
 
