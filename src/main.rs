@@ -186,6 +186,7 @@ async fn main() {
     let app = Router::new()
         .route("/login", get(auth::login_page))
         .route("/login", post(auth::login_handler))
+        .route("/logout", get(auth::logout_handler))
         .merge(api_routes)
         .merge(static_assets_routes)
         .merge(public_data_routes)

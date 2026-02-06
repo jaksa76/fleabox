@@ -307,6 +307,101 @@ test.describe('Config-based Authentication', () => {
     );
   });
 
+  test('should logout successfully and clear cookies', async ({ page, context }) => {
+    // Login first
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'testuser');
+    await page.fill('input[name="password"]', 'testpass123');
+    await page.click('button[type="submit"]');
+
+    // Wait for successful login
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+
+    // Verify cookies are set
+    const cookies = await context.cookies();
+    const tokenCookie = cookies.find(c => c.name === 'fleabox_token');
+    const usernameCookie = cookies.find(c => c.name === 'fleabox_username');
+    expect(tokenCookie).toBeDefined();
+    expect(usernameCookie).toBeDefined();
+    expect(usernameCookie?.value).toBe('testuser');
+
+    // Navigate to logout
+    await page.goto(`${baseURL}/logout`);
+
+    // Should redirect to login page (in Config mode, homepage requires auth)
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+
+    // Verify cookies are cleared
+    const cookiesAfterLogout = await context.cookies();
+    const tokenAfterLogout = cookiesAfterLogout.find(c => c.name === 'fleabox_token' && c.value !== '');
+    const usernameAfterLogout = cookiesAfterLogout.find(c => c.name === 'fleabox_username' && c.value !== '');
+    expect(tokenAfterLogout).toBeUndefined();
+    expect(usernameAfterLogout).toBeUndefined();
+
+    // Verify can't access protected resources
+    await page.goto(`${baseURL}/todo/`);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
+  test('should allow re-login after logout', async ({ page, context }) => {
+    // Login
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'testuser');
+    await page.fill('input[name="password"]', 'testpass123');
+    await page.click('button[type="submit"]');
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+
+    // Logout
+    await page.goto(`${baseURL}/logout`);
+    await page.waitForURL(/\/login/);
+
+    // Login again
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'testuser');
+    await page.fill('input[name="password"]', 'testpass123');
+    await page.click('button[type="submit"]');
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+
+    // Should be able to access protected resources
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
+    expect(page.url()).toContain('/todo');
+    await expect(page.locator('h1')).toContainText('Todo List');
+  });
+
+  test('should handle logout when already logged out', async ({ page }) => {
+    // Try to logout without being logged in
+    await page.goto(`${baseURL}/logout`);
+
+    // Should still redirect to login page without error (in Config mode)
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
+  test('should handle multiple consecutive logouts', async ({ page, context }) => {
+    // Login
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'testuser');
+    await page.fill('input[name="password"]', 'testpass123');
+    await page.click('button[type="submit"]');
+    await page.waitForURL((url) => !url.pathname.includes('/login'));
+
+    // First logout
+    await page.goto(`${baseURL}/logout`);
+    await page.waitForURL(/\/login/);
+
+    // Second logout (should be idempotent)
+    await page.goto(`${baseURL}/logout`);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+
+    // Third logout (still works)
+    await page.goto(`${baseURL}/logout`);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
   test('should isolate data between users', async ({ page, context }) => {
     // Login as alice
     await context.clearCookies();
@@ -612,6 +707,27 @@ test.describe('Dev Mode', () => {
       }
     }
   });
+
+  test('should logout in dev mode and prevent access to protected resources', async ({ page, context }) => {
+    // In dev mode, user is auto-authenticated, but logout should still work
+    await page.goto(`${baseURL}/todo/`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('h1')).toContainText('Todo List');
+
+    // Navigate to logout
+    await page.goto(`${baseURL}/logout`);
+
+    // Should redirect to homepage
+    await page.waitForURL(baseURL + '/');
+    expect(page.url()).toBe(baseURL + '/');
+
+    // In dev mode, user can still access apps after logout (no auth required)
+    // But cookies should be cleared
+    const cookies = await context.cookies();
+    const tokenCookie = cookies.find(c => c.name === 'fleabox_token' && c.value !== '');
+    const usernameCookie = cookies.find(c => c.name === 'fleabox_username' && c.value !== '');
+    expect(tokenCookie).toBeUndefined();
+    expect(usernameCookie).toBeUndefined();
+  });
 });
 
 test.describe('PAM Authentication', () => {
@@ -765,6 +881,72 @@ test.describe('PAM Authentication', () => {
         ])
       );
     }
+  });
+
+  test('should logout successfully in PAM mode and clear authentication', async ({ page, context }) => {
+    // Login as alice
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'alice');
+    await page.fill('input[name="password"]', 'alice123');
+    await page.click('button[type="submit"]');
+
+    // Wait for successful login
+    await page.waitForURL(/\/todo/, { timeout: 10000 });
+
+    // Verify cookies are set
+    const cookies = await context.cookies();
+    const tokenCookie = cookies.find(c => c.name === 'fleabox_token');
+    const usernameCookie = cookies.find(c => c.name === 'fleabox_username');
+    expect(tokenCookie).toBeDefined();
+    expect(usernameCookie).toBeDefined();
+    expect(usernameCookie?.value).toBe('alice');
+
+    // Navigate to logout
+    await page.goto(`${baseURL}/logout`);
+
+    // Should redirect to login page (in PAM mode, homepage requires auth)
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+
+    // Verify cookies are cleared
+    const cookiesAfterLogout = await context.cookies();
+    const tokenAfterLogout = cookiesAfterLogout.find(c => c.name === 'fleabox_token' && c.value !== '');
+    const usernameAfterLogout = cookiesAfterLogout.find(c => c.name === 'fleabox_username' && c.value !== '');
+    expect(tokenAfterLogout).toBeUndefined();
+    expect(usernameAfterLogout).toBeUndefined();
+
+    // Verify can't access protected resources
+    await page.goto(`${baseURL}/todo/`);
+    await page.waitForURL(/\/login/);
+    expect(page.url()).toContain('/login');
+  });
+
+  test('should allow different user to login after logout in PAM mode', async ({ page, context }) => {
+    // Login as alice
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'alice');
+    await page.fill('input[name="password"]', 'alice123');
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/todo/, { timeout: 10000 });
+
+    // Logout
+    await page.goto(`${baseURL}/logout`);
+    await page.waitForURL(/\/login/);
+
+    // Login as bob
+    await page.goto(`${baseURL}/login`);
+    await page.fill('input[name="username"]', 'bob');
+    await page.fill('input[name="password"]', 'bob123');
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/todo/, { timeout: 10000 });
+
+    // Verify logged in as bob
+    const cookies = await context.cookies();
+    const usernameCookie = cookies.find(c => c.name === 'fleabox_username');
+    expect(usernameCookie?.value).toBe('bob');
+
+    // Should be able to access todo app
+    await expect(page.locator('#todoInput')).toBeVisible();
   });
 
 

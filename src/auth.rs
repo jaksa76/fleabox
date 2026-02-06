@@ -716,6 +716,34 @@ pub(crate) async fn login_handler(
     Ok((jar, StatusCode::OK))
 }
 
+pub(crate) async fn logout_handler(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> (CookieJar, Redirect) {
+    // Extract token from cookie (if present) and remove from store
+    if let Some(token_cookie) = jar.get("fleabox_token") {
+        let token = token_cookie.value();
+
+        // Remove token from the server's token store
+        let mut store = state.token_store.write().unwrap();
+        store.remove(token);
+    }
+
+    // Remove both authentication cookies
+    let jar = jar.remove(Cookie::build(("fleabox_token", "")).path("/"));
+    let jar = jar.remove(Cookie::build(("fleabox_username", "")).path("/"));
+
+    // Redirect based on auth mode
+    // In dev mode, redirect to homepage (no auth required)
+    // In Config/PAM modes, redirect to login page (auth required for homepage)
+    let redirect_url = if state.dev_mode {
+        "/"
+    } else {
+        "/login"
+    };
+    (jar, Redirect::to(redirect_url))
+}
+
 pub(crate) async fn token_auth_middleware(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -841,4 +869,208 @@ pub(crate) async fn token_auth_middleware(
     });
 
     Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum_extra::extract::cookie::Cookie;
+
+    fn create_test_app_state() -> AppState {
+        use rsa::RsaPrivateKey;
+        use rand::rngs::OsRng;
+
+        // Generate a minimal RSA key for testing
+        let mut rng = OsRng;
+        let test_key = RsaPrivateKey::new(&mut rng, 2048)
+            .expect("Failed to generate test RSA key");
+
+        AppState {
+            token_store: Arc::new(RwLock::new(HashMap::new())),
+            apps_dir: "/tmp/test_apps".to_string(),
+            rsa_private_key: Arc::new(test_key),
+            auth_type: AuthType::Config,
+            config: None,
+            dev_mode: false,
+        }
+    }
+
+    fn create_test_token_info() -> TokenInfo {
+        TokenInfo {
+            user: "testuser".to_string(),
+            app: "*".to_string(),
+            expiry: SystemTime::now() + Duration::from_secs(3600),
+            data_dir: PathBuf::from("/home/testuser"),
+            uid: 1000,
+            gid: 1000,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_logout_removes_token_from_store() {
+        let state = create_test_app_state();
+        let token = "test-token-123";
+
+        // Add token to store
+        {
+            let mut store = state.token_store.write().unwrap();
+            store.insert(token.to_string(), create_test_token_info());
+        }
+
+        // Create cookie jar with token
+        let jar = CookieJar::new();
+        let jar = jar.add(Cookie::new("fleabox_token", token));
+
+        // Call logout handler
+        let (_, _) = logout_handler(State(state.clone()), jar).await;
+
+        // Verify token was removed from store
+        let store = state.token_store.read().unwrap();
+        assert!(!store.contains_key(token));
+    }
+
+    #[tokio::test]
+    async fn test_logout_removes_cookies() {
+        let state = create_test_app_state();
+        let token = "test-token-456";
+
+        // Create cookie jar with both cookies
+        let jar = CookieJar::new();
+        let jar = jar.add(Cookie::new("fleabox_token", token));
+        let jar = jar.add(Cookie::new("fleabox_username", "testuser"));
+
+        // Call logout handler
+        let (result_jar, _) = logout_handler(State(state), jar).await;
+
+        // Verify cookies were removed (checking for removal cookies)
+        let token_cookie = result_jar.get("fleabox_token");
+        let username_cookie = result_jar.get("fleabox_username");
+
+        // When cookies are removed, they should either be None or have empty values
+        assert!(token_cookie.is_none() || token_cookie.unwrap().value().is_empty());
+        assert!(username_cookie.is_none() || username_cookie.unwrap().value().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_logout_redirects_to_homepage() {
+        let state = create_test_app_state();
+        let jar = CookieJar::new();
+
+        // Call logout handler
+        let (_, redirect) = logout_handler(State(state), jar).await;
+
+        // Verify redirect to "/login" (since dev_mode is false)
+        let response = redirect.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let location = response.headers().get("location").unwrap();
+        assert_eq!(location, "/login");
+    }
+
+    #[tokio::test]
+    async fn test_logout_without_cookie_succeeds() {
+        let state = create_test_app_state();
+        let jar = CookieJar::new();
+
+        // Call logout handler without any cookies
+        let (result_jar, redirect) = logout_handler(State(state), jar).await;
+
+        // Should still succeed and redirect
+        let response = redirect.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let location = response.headers().get("location").unwrap();
+        assert_eq!(location, "/login");
+
+        // Result jar should have removal cookies
+        assert!(result_jar.get("fleabox_token").is_none() ||
+                result_jar.get("fleabox_token").unwrap().value().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_logout_with_nonexistent_token() {
+        let state = create_test_app_state();
+        let token = "nonexistent-token";
+
+        // Create cookie jar with token that doesn't exist in store
+        let jar = CookieJar::new();
+        let jar = jar.add(Cookie::new("fleabox_token", token));
+
+        // Call logout handler
+        let (_, redirect) = logout_handler(State(state.clone()), jar).await;
+
+        // Should still succeed
+        let response = redirect.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        // Verify store is still empty (no panic occurred)
+        let store = state.token_store.read().unwrap();
+        assert_eq!(store.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_logout_is_idempotent() {
+        let state = create_test_app_state();
+        let token = "test-token-789";
+
+        // Add token to store
+        {
+            let mut store = state.token_store.write().unwrap();
+            store.insert(token.to_string(), create_test_token_info());
+        }
+
+        // Create cookie jar
+        let jar = CookieJar::new();
+        let jar = jar.add(Cookie::new("fleabox_token", token));
+
+        // Call logout handler first time
+        let (_jar1, _) = logout_handler(State(state.clone()), jar).await;
+
+        // Verify token was removed
+        {
+            let store = state.token_store.read().unwrap();
+            assert!(!store.contains_key(token));
+        }
+
+        // Call logout handler second time with same cookie
+        let jar2 = CookieJar::new();
+        let jar2 = jar2.add(Cookie::new("fleabox_token", token));
+        let (_, redirect) = logout_handler(State(state), jar2).await;
+
+        // Should still succeed
+        let response = redirect.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn test_logout_in_dev_mode_redirects_to_homepage() {
+        use rsa::RsaPrivateKey;
+        use rand::rngs::OsRng;
+
+        // Create state with dev_mode = true
+        let mut rng = OsRng;
+        let test_key = RsaPrivateKey::new(&mut rng, 2048)
+            .expect("Failed to generate test RSA key");
+
+        let state = AppState {
+            token_store: Arc::new(RwLock::new(HashMap::new())),
+            apps_dir: "/tmp/test_apps".to_string(),
+            rsa_private_key: Arc::new(test_key),
+            auth_type: AuthType::Config,
+            config: None,
+            dev_mode: true, // Dev mode
+        };
+
+        let jar = CookieJar::new();
+
+        // Call logout handler
+        let (_, redirect) = logout_handler(State(state), jar).await;
+
+        // Verify redirect to "/" in dev mode
+        let response = redirect.into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let location = response.headers().get("location").unwrap();
+        assert_eq!(location, "/");
+    }
 }
