@@ -90,11 +90,19 @@ pub(crate) fn validate_and_resolve_path(
         ));
     }
 
+    // Strip trailing slash (used for directory listing) before splitting
+    let trimmed_path = relative_path.trim_end_matches('/');
+
     // Split and validate each component
-    let components: Vec<&str> = relative_path.split('/').collect();
-    for component in &components {
-        validate_path_component(component)?;
-    }
+    let components: Vec<&str> = if trimmed_path.is_empty() {
+        Vec::new()
+    } else {
+        let parts: Vec<&str> = trimmed_path.split('/').collect();
+        for component in &parts {
+            validate_path_component(component)?;
+        }
+        parts
+    };
 
     // Build the full path
     let mut full_path = base_dir.to_path_buf();
