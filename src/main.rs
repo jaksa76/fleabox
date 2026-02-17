@@ -31,6 +31,11 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
     let dev_mode = args.contains(&"--dev".to_string());
 
+    if args.contains(&"--version".to_string()) {
+        println!("fleabox {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     if args.contains(&"--help".to_string()) {
         println!("fleabox - self-hosted app server");
         println!(
@@ -38,6 +43,7 @@ async fn main() {
         );
         println!();
         println!("Options:");
+        println!("  --version        Print version information");
         println!("  --dev            Run in development mode (uses current user)");
         println!("  --apps-dir DIR   Path to apps directory (default: /srv/fleabox)");
         println!("  --port PORT      Port to listen on (default: 3000)");
@@ -434,6 +440,28 @@ mod tests {
             "not_a_number".to_string(),
         ];
         assert!(crate::cli::parse_port_arg(&args).is_err());
+    }
+
+    #[test]
+    fn test_version_from_cargo() {
+        // Test that the version is correctly obtained from Cargo.toml
+        let version = env!("CARGO_PKG_VERSION");
+        assert!(!version.is_empty(), "Version should not be empty");
+        
+        // Check that version follows semver format (major.minor.patch)
+        let parts: Vec<&str> = version.split('.').collect();
+        assert!(
+            parts.len() >= 2,
+            "Version should have at least major.minor format"
+        );
+        
+        // Verify each part is numeric
+        for part in parts {
+            assert!(
+                part.chars().all(|c| c.is_numeric()),
+                "Version part should be numeric"
+            );
+        }
 
         let args = vec!["fleabox".to_string(), "--port=not_a_number".to_string()];
         assert!(crate::cli::parse_port_arg(&args).is_err());
