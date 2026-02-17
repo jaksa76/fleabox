@@ -1,3 +1,5 @@
+This is the instruction file for agents building **applications** based on Fleabox. It is not the instruction file for agents building Fleabox itself.
+
 # Building Apps on Fleabox
 
 Fleabox is a tiny self-hosted application hub. It serves static web apps and stores per-user data as JSON files on the filesystem.
