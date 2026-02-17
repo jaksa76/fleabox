@@ -365,6 +365,13 @@ pub(crate) async fn login_page(
     // Export public key as SPKI PEM format
     let public_key_pem = state
         .rsa_private_key
+        .as_ref()
+        .ok_or_else(|| {
+            ErrorResponse::new(
+                "internal_error",
+                Some("RSA key not available".to_string()),
+            )
+        })?
         .to_public_key()
         .to_public_key_pem(rsa::pkcs8::LineEnding::LF)
         .unwrap_or_else(|_| "ERROR".to_string());
@@ -631,9 +638,18 @@ pub(crate) async fn login_handler(
             ErrorResponse::new("bad_request", Some("Invalid base64 encoding".to_string()))
         })?;
 
-    let padding = Oaep::new::<Sha256>();
-    let decrypted_bytes = state
+    let rsa_key = state
         .rsa_private_key
+        .as_ref()
+        .ok_or_else(|| {
+            ErrorResponse::new(
+                "internal_error",
+                Some("RSA key not available".to_string()),
+            )
+        })?;
+
+    let padding = Oaep::new::<Sha256>();
+    let decrypted_bytes = rsa_key
         .decrypt(padding, &encrypted_bytes)
         .map_err(|_| ErrorResponse::new("bad_request", Some("Decryption failed".to_string())))?;
 
@@ -888,7 +904,7 @@ mod tests {
         AppState {
             token_store: Arc::new(RwLock::new(HashMap::new())),
             apps_dir: "/tmp/test_apps".to_string(),
-            rsa_private_key: Arc::new(test_key),
+            rsa_private_key: Some(Arc::new(test_key)),
             auth_type: AuthType::Config,
             config: None,
             dev_mode: false,
@@ -1055,7 +1071,7 @@ mod tests {
         let state = AppState {
             token_store: Arc::new(RwLock::new(HashMap::new())),
             apps_dir: "/tmp/test_apps".to_string(),
-            rsa_private_key: Arc::new(test_key),
+            rsa_private_key: Some(Arc::new(test_key)),
             auth_type: AuthType::Config,
             config: None,
             dev_mode: true, // Dev mode

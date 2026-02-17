@@ -20,7 +20,7 @@ use std::{collections::HashMap, env, sync::Arc};
 pub(crate) struct AppState {
     pub(crate) token_store: auth::TokenStore,
     pub(crate) apps_dir: String,
-    pub(crate) rsa_private_key: Arc<RsaPrivateKey>,
+    pub(crate) rsa_private_key: Option<Arc<RsaPrivateKey>>,
     pub(crate) auth_type: AuthType,
     pub(crate) config: Option<Arc<cli::Config>>,
     pub(crate) dev_mode: bool,
@@ -139,15 +139,21 @@ async fn main() {
         None
     };
 
-    println!("Generating RSA keypair...");
-    let mut rng = rand::thread_rng();
-    let rsa_private_key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
-    println!("RSA keypair generated successfully");
+    // Only generate RSA key if needed for authentication (PAM or Config)
+    let rsa_private_key = if auth_type == AuthType::Pam || auth_type == AuthType::Config {
+        println!("Generating RSA keypair...");
+        let mut rng = rand::thread_rng();
+        let key = RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate RSA key");
+        println!("RSA keypair generated successfully");
+        Some(Arc::new(key))
+    } else {
+        None
+    };
 
     let state = AppState {
         token_store: Arc::new(RwLock::new(HashMap::new())),
         apps_dir,
-        rsa_private_key: Arc::new(rsa_private_key),
+        rsa_private_key,
         auth_type: auth_type.clone(),
         config,
         dev_mode,
@@ -202,13 +208,15 @@ async fn main() {
         .await
         .unwrap();
 
-    println!("Server running on http://0.0.0.0:{}", port);
+    println!("Fleabox v{} running on http://0.0.0.0:{}", env!("CARGO_PKG_VERSION"), port);
     match auth_type {
         AuthType::Pam => println!("Authentication: PAM (system users)"),
         AuthType::Config => println!("Authentication: Config file"),
         AuthType::None => println!("Authentication: Reverse proxy (X-Remote-User header)"),
     }
-    println!("Password encryption: RSA-2048 with OAEP");
+    if auth_type == AuthType::Pam || auth_type == AuthType::Config {
+        println!("Password encryption: RSA-2048 with OAEP");
+    }
 
     axum::serve(listener, app).await.unwrap();
 }

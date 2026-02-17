@@ -51,7 +51,7 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
 
         proc.stdout?.on('data', (data) => {
           output += data.toString();
-          if (output.includes('Server running')) {
+          if (output.includes('running on')) {
             resolve(proc);
           }
         });
@@ -77,7 +77,7 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
       proc.stdout?.on('data', (data) => {
         const text = data.toString();
         output += text;
-        if (!resolved && output.includes('Server running')) {
+        if (!resolved && output.includes('running on')) {
           resolved = true;
           resolve(proc);
         }
@@ -86,7 +86,7 @@ async function startFleabox(args: string[], useSudo: boolean = false): Promise<C
       proc.stderr?.on('data', (data) => {
         const text = data.toString();
         // Cargo outputs "Running" message to stderr, which includes our server startup message
-        if (!resolved && text.includes('Server running')) {
+        if (!resolved && text.includes('running on')) {
           resolved = true;
           resolve(proc);
         }
