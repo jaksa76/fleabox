@@ -135,4 +135,69 @@ test.describe('Directory Listing API', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual([]);
   });
+
+  test('should list files in the root data directory', async ({ page }) => {
+    await page.goto('/');
+
+    // Create files at the root data level (not in subdirectories)
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/root-file1.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: 'test1' }),
+      }), APP_ID);
+
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/root-file2.txt`, {
+        method: 'PUT',
+        body: 'hello from root',
+      }), APP_ID);
+
+    // Also create a subdirectory so we can verify it appears in the listing
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/subdir/nested.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }), APP_ID);
+
+    // Fetch the root data directory listing (empty path or just trailing slash)
+    const response = await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/`).then(async (r) => ({
+        status: r.status,
+        body: r.ok ? await r.json() : await r.text(),
+      })), APP_ID);
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body)).toBe(true);
+
+    // Extract names of items in the listing
+    const names = response.body.map((e: any) => e.name);
+    
+    // Verify our created files are present
+    expect(names).toContain('root-file1.json');
+    expect(names).toContain('root-file2.txt');
+    expect(names).toContain('subdir');
+
+    // Verify the subdirectory has type "dir"
+    const subdirEntry = response.body.find((e: any) => e.name === 'subdir');
+    expect(subdirEntry).toBeDefined();
+    expect(subdirEntry.type).toBe('dir');
+
+    // Verify files have the expected properties
+    const file1 = response.body.find((e: any) => e.name === 'root-file1.json');
+    expect(file1).toBeDefined();
+    expect(file1.type).toBe('file');
+    expect(typeof file1.size).toBe('number');
+    expect(file1.size).toBeGreaterThan(0);
+    expect(typeof file1.mtime).toBe('number');
+
+    // Cleanup
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/root-file1.json`, { method: 'DELETE' }), APP_ID);
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/root-file2.txt`, { method: 'DELETE' }), APP_ID);
+    await page.evaluate((appId) =>
+      fetch(`/api/${appId}/data/subdir/`, { method: 'DELETE' }), APP_ID);
+  });
 });

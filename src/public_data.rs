@@ -46,17 +46,15 @@ pub(crate) async fn api_get_public_data(
 
     let public_root = user_info.home_dir.join(&app_id).join("public");
 
-    // If public root doesn't exist, return 404
-    if !public_root.exists() {
-        return Err(ErrorResponse::new(
-            "not_found",
-            Some("Public folder does not exist".to_string()),
-        ));
-    }
-
     let resolved_path = validate_and_resolve_path(&public_root, &path)?;
 
     if !resolved_path.exists() {
+        // Special case: if requesting the root public directory and it doesn't exist,
+        // treat it as an empty directory rather than 404
+        if resolved_path == public_root {
+            return Ok((StatusCode::OK, Json(Vec::<DirEntry>::new())).into_response());
+        }
+        
         return Err(ErrorResponse::new(
             "not_found",
             Some("Path not found".to_string()),
@@ -144,6 +142,15 @@ pub(crate) async fn api_get_public_data(
             Some("Unsupported file type".to_string()),
         ))
     }
+}
+
+// GET /api/<app_id>/public/ (root directory listing)
+pub(crate) async fn api_get_public_data_root(
+    Path(app_id): Path<String>,
+    req: Request,
+) -> Result<Response, ErrorResponse> {
+    // Call api_get_public_data with an empty path
+    api_get_public_data(Path((app_id, String::new())), req).await
 }
 
 // PUT /api/<app_id>/public/<path> - Owner's PUT handler

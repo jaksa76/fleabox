@@ -160,13 +160,13 @@ async fn main() {
     };
 
     let api_routes = Router::new()
+        .route("/api/:app_id/data/", get(private_data::api_get_data_root))
         .route("/api/:app_id/data/*path", get(private_data::api_get_data))
         .route("/api/:app_id/data/*path", put(private_data::api_put_data))
         .route(
             "/api/:app_id/data/*path",
             delete(private_data::api_delete_data),
-        )
-        .route("/api/:app_id/public/*path", get(public_data::api_get_public_data))
+        )        .route("/api/:app_id/public/", get(public_data::api_get_public_data_root))        .route("/api/:app_id/public/*path", get(public_data::api_get_public_data))
         .route("/api/:app_id/public/*path", put(public_data::api_put_public_data))
         .route(
             "/api/:app_id/public/*path",
